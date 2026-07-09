@@ -1,0 +1,14 @@
+{
+  "walk_new_files_per_sec": 1040707.1894437602,
+  "walk_naive_files_per_sec": 968333.0220994441,
+  "walk_speedup": 1.0747409885778776,
+  "scanner_new_ns_per_scan": 1820670.965,
+  "scanner_naive_ns_per_scan": 1729475.9525,
+  "scanner_speedup": 1.2122040760945512,
+  "json_new_ns_per_payload": 75218.9475,
+  "json_naive_ns_per_payload": 67134.369,
+  "json_speedup": 0.8925193881501733,
+  "time_ns_per_format": 369.231875,
+  "id_ns_per_id": 38.93459,
+  "cli_ns_per_parse": 98.36712
+}

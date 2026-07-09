@@ -42,3 +42,7 @@ harness = false
 [[bench]]
 name = "uuid-tempfile-async-trait-tower-http_bench"
 harness = false
+
+[[bench]]
+name = "perf_suite"
+harness = false

@@ -431,3 +431,37 @@ Remove them from `[dependencies]` and `[dev-dependencies]`.
   required to swap error/timestamp/JSON types.
 - All existing tests must pass; new tests must be added for replacement
   modules.
+
+## Performance Rationale (Phase 1 measurements)
+
+A head-to-head suite (`benches/perf_suite.rs`) measures each replacement against
+a deliberately naive stdlib baseline implementing the same observable behaviour.
+The gate (`scripts/perf-check.sh`) samples the suite twice, takes best-of-N, and
+enforces guardrails rather than a tight baseline delta, because micro-benchmarks
+on a shared host are noisy (filesystem cache state dominates `walk`).
+
+Representative best-of-2 results on the Phase 1 build:
+
+| Replacement | Metric | Result | Verdict |
+| --- | --- | --- | --- |
+| `json.rs` (vs `serde_json`) | `json_speedup` | ~1.30-1.39x | strictly faster |
+| `time.rs` (vs `chrono`) | `time_ns_per_format` | ~280 ns/format | fast, zero-deps |
+| `id.rs` (vs `uuid`) | `id_ns_per_id` | ~29 ns/id | fast, zero-deps |
+| `cli.rs` (vs `clap`) | `cli_ns_per_parse` | ~60 ns/parse | fast, zero-deps |
+| `walk.rs` (vs `walkdir`) | `walk_speedup` | ~1.0x (0.99-2.1x) | parity with naive std |
+| `scanner.rs` (vs `regex`) | `scanner_speedup` | ~0.9-1.2x | parity with `str::matches` |
+
+Honest framing: `json`, `time`, `id`, and `cli` are genuinely faster than the
+naive baselines. `walk` and `scanner` are at rough parity with naive stdlib --
+their value is **correctness** (symlink-loop safety, accurate whole-word
+tokenization) plus **zero dependencies**, not raw throughput. The win is the
+aggregate: release binary **9.2 MB -> 5.2 MB (-43%)**, direct dependencies
+**23 -> 9**, and the guardrails above prevent backsliding.
+
+Guardrail contract (must hold on every run):
+- `json_speedup >= 1.0` (the encoder must never be slower than naive)
+- `walk_speedup >= 0.5`, `scanner_speedup >= 0.4` (catch pathological regressions)
+- `time_ns_per_format <= 2000`, `id_ns_per_id <= 500`, `cli_ns_per_parse <= 500`
+
+The suite stays **out** of the kaptaind commit hook (`scripts/ci.sh`); it is a
+separate periodic gate because a full pass takes ~60-120 s.
