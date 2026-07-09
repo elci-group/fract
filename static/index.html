@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fract — Architectural Maintenance Daemon</title>
+  <style>
+    :root {
+      --bg: #0b0d17;
+      --panel: rgba(255, 255, 255, 0.06);
+      --panel-border: rgba(255, 255, 255, 0.12);
+      --text: #e8eaf6;
+      --muted: #9aa0b2;
+      --accent: #64ffda;
+      --warn: #ffd54f;
+      --crit: #ff5252;
+      --good: #69f0ae;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: radial-gradient(circle at 20% 0%, #1a237e 0%, transparent 40%),
+                  radial-gradient(circle at 80% 100%, #004d40 0%, transparent 40%),
+                  var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    header {
+      padding: 2rem;
+      border-bottom: 1px solid var(--panel-border);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      background: rgba(11, 13, 23, 0.7);
+    }
+    h1 { margin: 0; font-weight: 300; letter-spacing: 0.05em; }
+    h1 span { color: var(--accent); font-weight: 600; }
+    main { padding: 2rem; display: grid; gap: 1.5rem; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 1.25rem;
+      padding: 1.5rem;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+    }
+    .panel h2 { margin-top: 0; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
+    .big { font-size: 3rem; font-weight: 200; margin: 0.5rem 0; }
+    .bar { height: 1rem; border-radius: 0.5rem; background: rgba(255,255,255,0.1); overflow: hidden; }
+    .bar > div { height: 100%; border-radius: 0.5rem; transition: width 0.5s ease; }
+    .module-list { list-style: none; padding: 0; margin: 0; }
+    .module-list li { display: flex; justify-content: space-between; padding: 0.6rem 0; border-bottom: 1px solid var(--panel-border); }
+    .module-list li:last-child { border-bottom: none; }
+    .badge { font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: 999px; text-transform: uppercase; }
+    .badge.excellent { background: rgba(105, 240, 174, 0.15); color: var(--good); }
+    .badge.healthy { background: rgba(100, 255, 218, 0.12); color: var(--accent); }
+    .badge.warning { background: rgba(255, 213, 79, 0.15); color: var(--warn); }
+    .badge.critical { background: rgba(255, 82, 82, 0.15); color: var(--crit); }
+    .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
+    .stat { text-align: center; }
+    .stat .value { font-size: 1.8rem; font-weight: 300; }
+    .stat .label { font-size: 0.75rem; color: var(--muted); margin-top: 0.25rem; }
+    .timeline { position: relative; padding-left: 1.25rem; }
+    .timeline::before { content: ""; position: absolute; left: 0.35rem; top: 0.4rem; bottom: 0.4rem; width: 2px; background: var(--panel-border); }
+    .timeline .event { position: relative; margin-bottom: 1rem; font-size: 0.9rem; }
+    .timeline .event::before { content: ""; position: absolute; left: -1rem; top: 0.4rem; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--accent); }
+    .timeline time { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.15rem; }
+    pre { background: rgba(0,0,0,0.3); padding: 1rem; border-radius: 0.75rem; overflow-x: auto; font-size: 0.8rem; }
+    footer { padding: 2rem; color: var(--muted); font-size: 0.8rem; text-align: center; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1><span>fract</span> — architectural maintenance daemon</h1>
+  </header>
+  <main>
+    <section class="panel">
+      <h2>Project Health</h2>
+      <div class="big" id="health-score">—</div>
+      <div class="bar"><div id="health-bar"></div></div>
+      <p id="health-summary" style="color: var(--muted); margin-top: 1rem;">Waiting for data…</p>
+    </section>
+    <section class="panel">
+      <h2>Modules</h2>
+      <ul class="module-list" id="modules"></ul>
+    </section>
+    <section class="panel">
+      <h2>Refactors Today</h2>
+      <div class="stats">
+        <div class="stat"><div class="value" id="completed">—</div><div class="label">Completed</div></div>
+        <div class="stat"><div class="value" id="pending">—</div><div class="label">Pending</div></div>
+        <div class="stat"><div class="value" id="failed">—</div><div class="label">Failed</div></div>
+        <div class="stat"><div class="value" id="loc-removed">—</div><div class="label">LOC Removed</div></div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Latest Events</h2>
+      <div class="timeline" id="timeline"></div>
+    </section>
+    <section class="panel">
+      <h2>Proposals</h2>
+      <ul class="module-list" id="proposals"></ul>
+    </section>
+    <section class="panel">
+      <h2>Configuration</h2>
+      <pre id="config">Loading…</pre>
+    </section>
+  </main>
+  <footer>
+    Fract preserves architecture. Copilot writes code. Silverline fixes errors. Kaptaind manages releases.
+  </footer>
+  <script>
+    async function load() {
+      try {
+        const [health, modules, proposals, events, config] = await Promise.all([
+          fetch('/api/health').then(r => r.json()),
+          fetch('/api/modules').then(r => r.json()),
+          fetch('/api/proposals').then(r => r.json()),
+          fetch('/api/events').then(r => r.json()),
+          fetch('/api/config').then(r => r.json()),
+        ]);
+
+        document.getElementById('health-score').textContent = health.score.toFixed(1) + '%';
+        const bar = document.getElementById('health-bar');
+        bar.style.width = health.score + '%';
+        bar.style.background = health.score > 80 ? 'var(--good)' : health.score > 50 ? 'var(--warn)' : 'var(--crit)';
+        document.getElementById('health-summary').textContent =
+          `${health.total_modules} modules · ${health.healthy} healthy · ${health.warning} warning · ${health.critical} critical`;
+
+        const modList = document.getElementById('modules');
+        modList.innerHTML = modules.modules.slice(0, 12).map(m =>
+          `<li><span>${m.path}</span><span class="badge ${m.health.toLowerCase()}">${m.health}</span></li>`
+        ).join('');
+
+        document.getElementById('completed').textContent = health.refactors_today.completed;
+        document.getElementById('pending').textContent = health.refactors_today.pending;
+        document.getElementById('failed').textContent = health.refactors_today.failed;
+        document.getElementById('loc-removed').textContent = health.refactors_today.loc_removed;
+
+        const timeline = document.getElementById('timeline');
+        timeline.innerHTML = events.events.slice(0, 6).map(e =>
+          `<div class="event"><time>${new Date(e.at).toLocaleTimeString()}</time>${e.type} ${e.path ? e.path.split('/').pop() : ''}</div>`
+        ).join('');
+
+        const propList = document.getElementById('proposals');
+        propList.innerHTML = proposals.proposals.slice(0, 8).map(p =>
+          `<li><span>${p.module}</span><span class="badge ${p.status.toLowerCase()}">${p.status}</span></li>`
+        ).join('');
+
+        document.getElementById('config').textContent = JSON.stringify(config, null, 2);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    load();
+    setInterval(load, 5000);
+  </script>
+</body>
+</html>

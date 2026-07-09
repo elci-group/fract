@@ -1,0 +1,5 @@
+target/
+.git/
+Cargo.lock
+.kaptaind/
+*.log

@@ -1,0 +1,33 @@
+[watch]
+path = "."
+recursive = true
+ignore_file = ".kaptainignore"
+
+[cluster]
+window = 5
+
+[test]
+command = "cargo test"
+required = true
+
+[push]
+enabled = true
+branch = "main"
+
+[staging]
+mode = "all"
+
+[ratelimit]
+min_commit_interval = 10
+
+[weights]
+s = 0.35
+a = 0.30
+d = 0.20
+r = 0.15
+b = 0.0
+
+[version_thresholds]
+patch = 0.15
+minor = 0.45
+major = 0.75
