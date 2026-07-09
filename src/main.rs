@@ -15,10 +15,16 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Command::Init { path } => {
-            let cfg = Config::default_for(path.canonicalize().unwrap_or(path));
+            std::fs::create_dir_all(&path)
+                .with_context(|| format!("create project dir {}", path.display()))?;
+            let root = path
+                .canonicalize()
+                .with_context(|| format!("resolve project root {}", path.display()))?;
+            let cfg = Config::default_for(root.clone());
             let text = toml::to_string_pretty(&cfg)?;
-            std::fs::write("fract.toml", text)?;
-            println!("Created fract.toml");
+            let out = root.join("fract.toml");
+            std::fs::write(&out, text)?;
+            println!("Created {}", out.display());
             Ok(())
         }
         Command::Index => {

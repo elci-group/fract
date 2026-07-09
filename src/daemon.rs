@@ -4,7 +4,7 @@ use crate::time::now;
 use crate::{
     confidence, config::Config, config::Mode, events::EventBus, merge, queue::RefactorQueue,
     refactor, validation, Event, EventKind, Module, ProjectHealth, Proposal, ProposalStatus,
-    RefactorKind, RefactorStats, TimelineEvent,
+    RefactorKind, RefactorStats, TimelineEvent, ValidationReport,
 };
 use notify::{
     Config as NotifyConfig, Event as NotifyEvent, RecommendedWatcher, RecursiveMode, Watcher,
@@ -312,6 +312,44 @@ impl Daemon {
 
     pub async fn events(&self, n: usize) -> Vec<Event> {
         self.event_bus.recent(n).await
+    }
+
+    /// Run a single deterministic pass: reindex the project, then emit a
+    /// proposal for every module at or above the entropy threshold. Unlike the
+    /// background `process_queue` loop this performs no shell-out and touches no
+    /// git repository, so it is safe to drive from tests and offline hosts.
+    pub async fn scan(self: &Arc<Self>) -> Result<()> {
+        self.refresh_index().await?;
+        self.detect_proposals().await?;
+        Ok(())
+    }
+
+    /// Build (and enqueue) a proposal for each currently-indexed module whose
+    /// entropy is at or above `config.entropy_threshold`. Confidence is derived
+    /// from a nominal passing validation report so the result is deterministic.
+    pub async fn detect_proposals(self: &Arc<Self>) -> Result<Vec<Proposal>> {
+        let modules = self.modules.read().await.clone();
+        let threshold = self.config.entropy_threshold;
+        let report = ValidationReport {
+            fmt_ok: true,
+            clippy_ok: true,
+            check_ok: true,
+            test_ok: true,
+            api_compatible: true,
+            coverage_delta: 0.0,
+            complexity_delta: 0.0,
+            logs: Vec::new(),
+        };
+        let mut produced = Vec::new();
+        for module in modules.into_iter().filter(|m| m.entropy >= threshold) {
+            let kind = classify_kind(&module);
+            let mut proposal = crate::queue::proposal_for(&module, kind);
+            proposal.confidence = confidence::score(&module, &proposal, &report);
+            proposal.status = ProposalStatus::Detected;
+            self.queue.enqueue_proposal(proposal.clone()).await;
+            produced.push(proposal);
+        }
+        Ok(produced)
     }
 }
 
