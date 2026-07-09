@@ -23,7 +23,12 @@ impl RustScanner {
                     && rest
                         .split_whitespace()
                         .nth(1)
-                        .map(|ident| ident.chars().next().is_some_and(|c| c.is_alphanumeric() || c == '_'))
+                        .map(|ident| {
+                            ident
+                                .chars()
+                                .next()
+                                .is_some_and(|c| c.is_alphanumeric() || c == '_')
+                        })
                         .unwrap_or(false)
             })
             .count()
@@ -31,15 +36,21 @@ impl RustScanner {
 
     pub fn count_branches(text: &str) -> usize {
         let keywords = ["if", "else", "match", "while", "for", "loop"];
-        text.lines().map(|line| count_branch_tokens(line, &keywords)).sum()
+        text.lines()
+            .map(|line| count_branch_tokens(line, &keywords))
+            .sum()
     }
 
     pub fn count_public_items(text: &str) -> usize {
-        text.lines().filter(|line| line.trim_start().starts_with("pub ")).count()
+        text.lines()
+            .filter(|line| line.trim_start().starts_with("pub "))
+            .count()
     }
 
     pub fn count_imports(text: &str) -> usize {
-        text.lines().filter(|line| line.trim_start().starts_with("use ")).count()
+        text.lines()
+            .filter(|line| line.trim_start().starts_with("use "))
+            .count()
     }
 }
 
@@ -48,18 +59,24 @@ impl PythonScanner {
         text.lines()
             .filter(|line| {
                 let trimmed = line.trim_start();
-                trimmed.starts_with("def ") && trimmed.len() > 4 && trimmed[4..].starts_with(|c: char| c.is_alphanumeric() || c == '_')
+                trimmed.starts_with("def ")
+                    && trimmed.len() > 4
+                    && trimmed[4..].starts_with(|c: char| c.is_alphanumeric() || c == '_')
             })
             .count()
     }
 
     pub fn count_branches(text: &str) -> usize {
         let keywords = ["if", "elif", "else", "for", "while", "and", "or"];
-        text.lines().map(|line| count_branch_tokens(line, &keywords)).sum()
+        text.lines()
+            .map(|line| count_branch_tokens(line, &keywords))
+            .sum()
     }
 
     pub fn count_public_items(text: &str) -> usize {
-        text.lines().filter(|line| !line.trim_start().starts_with('_')).count()
+        text.lines()
+            .filter(|line| !line.trim_start().starts_with('_'))
+            .count()
     }
 
     pub fn count_imports(text: &str) -> usize {
@@ -99,15 +116,21 @@ impl JsTsScanner {
 
     pub fn count_branches(text: &str) -> usize {
         let keywords = ["if", "else", "switch", "case", "for", "while"];
-        text.lines().map(|line| count_branch_tokens(line, &keywords)).sum()
+        text.lines()
+            .map(|line| count_branch_tokens(line, &keywords))
+            .sum()
     }
 
     pub fn count_public_items(text: &str) -> usize {
-        text.lines().filter(|line| line.trim_start().starts_with("export ")).count()
+        text.lines()
+            .filter(|line| line.trim_start().starts_with("export "))
+            .count()
     }
 
     pub fn count_imports(text: &str) -> usize {
-        text.lines().filter(|line| line.trim_start().starts_with("import ")).count()
+        text.lines()
+            .filter(|line| line.trim_start().starts_with("import "))
+            .count()
     }
 }
 
@@ -211,7 +234,8 @@ fn five() {}
 
     #[test]
     fn python_counts_functions() {
-        let text = "def one():\n    pass\ndef _two():\n    pass\nclass C:\n    def three(self): pass";
+        let text =
+            "def one():\n    pass\ndef _two():\n    pass\nclass C:\n    def three(self): pass";
         assert_eq!(PythonScanner::count_functions(text), 3);
     }
 

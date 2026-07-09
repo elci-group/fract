@@ -38,7 +38,11 @@ pub async fn validate(root: &Path, proposal: &mut Proposal) -> ValidationReport 
     }
 
     stage!("cargo fmt", vec!["fmt", "--", "--check"], fmt_ok);
-    stage!("cargo clippy", vec!["clippy", "--", "-D", "warnings"], clippy_ok);
+    stage!(
+        "cargo clippy",
+        vec!["clippy", "--", "-D", "warnings"],
+        clippy_ok
+    );
     stage!("cargo check", vec!["check"], check_ok);
     stage!("cargo test", vec!["test"], test_ok);
 
@@ -67,10 +71,7 @@ pub async fn validate(root: &Path, proposal: &mut Proposal) -> ValidationReport 
     report
 }
 
-async fn run_cargo(
-    root: &Path,
-    args: Vec<&str>,
-) -> crate::error::Result<(bool, String, String)> {
+async fn run_cargo(root: &Path, args: Vec<&str>) -> crate::error::Result<(bool, String, String)> {
     let mut cmd = Command::new("cargo");
     cmd.current_dir(root)
         .args(&args)

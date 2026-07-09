@@ -17,13 +17,9 @@ fn main() {
 
     let start = Instant::now();
     for i in 0..iterations {
-        let result: Result<i32, std::io::Error> = Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "missing",
-        ));
-        let err = result
-            .with_context(|| format!("context {i}"))
-            .unwrap_err();
+        let result: Result<i32, std::io::Error> =
+            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "missing"));
+        let err = result.with_context(|| format!("context {i}")).unwrap_err();
         let _ = err.to_string();
     }
     let context = start.elapsed();

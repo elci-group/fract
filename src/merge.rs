@@ -23,7 +23,9 @@ impl MergeSafety {
             return true;
         }
         if let Some(last) = self.last_edit {
-            let elapsed = SystemTime::now().duration_since(last).unwrap_or(Duration::MAX);
+            let elapsed = SystemTime::now()
+                .duration_since(last)
+                .unwrap_or(Duration::MAX);
             return elapsed >= self.quiet_period;
         }
         false
@@ -66,8 +68,7 @@ pub async fn apply(
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("creating {}", parent.display()))?;
         }
-        std::fs::write(&full, content)
-            .with_context(|| format!("writing {}", full.display()))?;
+        std::fs::write(&full, content).with_context(|| format!("writing {}", full.display()))?;
     }
 
     proposal.timeline.push(TimelineEvent {
@@ -79,11 +80,7 @@ pub async fn apply(
 }
 
 /// Commit the applied changes if the mode is autonomous.
-pub async fn commit(
-    root: &Path,
-    proposal: &mut Proposal,
-    message: &str,
-) -> Result<()> {
+pub async fn commit(root: &Path, proposal: &mut Proposal, message: &str) -> Result<()> {
     let repo = crate::git::open_repo(root)?;
     let mut index = repo.index()?;
     index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)?;

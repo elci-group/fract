@@ -49,7 +49,9 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.source.as_ref().map(|s| s.as_ref() as &(dyn std::error::Error + 'static))
+        self.source
+            .as_ref()
+            .map(|s| s.as_ref() as &(dyn std::error::Error + 'static))
     }
 }
 
@@ -200,10 +202,7 @@ mod tests {
     #[test]
     fn result_with_context_lazy() {
         fn fallible() -> std::result::Result<(), std::io::Error> {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "missing",
-            ))
+            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "missing"))
         }
         let err = fallible()
             .with_context(|| "lazy context".to_string())

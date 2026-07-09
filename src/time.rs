@@ -109,11 +109,13 @@ pub mod serde_trend {
     where
         D: ::serde::de::Deserializer<'de>,
     {
-        let flat: Vec<(String, f64)> =
-            ::serde::de::Deserialize::deserialize(deserializer)?;
+        let flat: Vec<(String, f64)> = ::serde::de::Deserialize::deserialize(deserializer)?;
         flat.into_iter()
             .map(|(s, val)| {
-                Ok((super::parse_rfc3339(&s).map_err(::serde::de::Error::custom)?, val))
+                Ok((
+                    super::parse_rfc3339(&s).map_err(::serde::de::Error::custom)?,
+                    val,
+                ))
             })
             .collect()
     }
@@ -179,7 +181,10 @@ fn format_rfc3339(secs: u64, nanos: u32) -> String {
     let day = (days + 1) as u8;
 
     if nanos == 0 {
-        format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", year, month, day, hour, minute, second)
+        format!(
+            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+            year, month, day, hour, minute, second
+        )
     } else {
         let frac = format!("{:09}", nanos);
         let frac = frac.trim_end_matches('0');
@@ -192,13 +197,16 @@ fn format_rfc3339(secs: u64, nanos: u32) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{now, parse_rfc3339, to_rfc3339, Timestamp, ymd_to_days};
+    use super::{now, parse_rfc3339, to_rfc3339, ymd_to_days, Timestamp};
     use ::serde::{Deserialize, Serialize};
     use std::time::{Duration, SystemTime};
 
     #[test]
     fn now_is_after_epoch() {
-        assert!(now().duration_since(SystemTime::UNIX_EPOCH).unwrap() > Duration::from_secs(1_700_000_000));
+        assert!(
+            now().duration_since(SystemTime::UNIX_EPOCH).unwrap()
+                > Duration::from_secs(1_700_000_000)
+        );
     }
 
     #[test]
@@ -219,7 +227,9 @@ mod tests {
         let original = SystemTime::UNIX_EPOCH + Duration::new(1_700_000_000, 999_999_999);
         let s = to_rfc3339(original);
         let parsed = parse_rfc3339(&s).unwrap();
-        let diff = parsed.duration_since(original).unwrap_or_else(|_| original.duration_since(parsed).unwrap());
+        let diff = parsed
+            .duration_since(original)
+            .unwrap_or_else(|_| original.duration_since(parsed).unwrap());
         assert!(diff < Duration::from_nanos(1));
     }
 
@@ -273,13 +283,23 @@ mod tests {
 
         let original = Health {
             entropy_trend: vec![
-                (SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000), 0.5),
-                (SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_001), 0.6),
+                (
+                    SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000),
+                    0.5,
+                ),
+                (
+                    SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_001),
+                    0.6,
+                ),
             ],
         };
         let encoded = toml::to_string(&original).unwrap();
         let parsed: Health = toml::from_str(&encoded).unwrap();
         assert_eq!(original.entropy_trend, parsed.entropy_trend);
-        assert!(encoded.contains("2023-11-14T22:13:20Z"), "unexpected encoded: {}", encoded);
+        assert!(
+            encoded.contains("2023-11-14T22:13:20Z"),
+            "unexpected encoded: {}",
+            encoded
+        );
     }
 }

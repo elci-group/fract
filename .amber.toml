@@ -1,0 +1,33 @@
+threshold = 70
+
+[policy]
+# Core-framework / security-critical dependencies that are intentionally kept.
+required = [
+    "serde",
+    "tokio",
+    "axum",
+    "notify",
+    "git2",
+    "toml",
+    "tracing",
+    "tracing-subscriber",
+]
+# Crates that were replaced by internal modules and must not be reintroduced.
+forbidden = [
+    "anyhow",
+    "chrono",
+    "walkdir",
+    "regex",
+    "clap",
+    "serde_json",
+    "uuid",
+    "tempfile",
+    "async-trait",
+    "tower-http",
+    "thiserror",
+    "sha2",
+    "hex",
+    "reqwest",
+    "tokio-test",
+]
+strict = true

@@ -204,7 +204,9 @@ impl Serialize for Value {
 
 /// Convert any serde-serializable value into a [`Value`].
 pub fn to_value<T: Serialize>(value: T) -> Value {
-    value.serialize(ValueSerializer).expect("failed to serialize value")
+    value
+        .serialize(ValueSerializer)
+        .expect("failed to serialize value")
 }
 
 #[derive(Debug)]
@@ -298,7 +300,9 @@ impl Serializer for ValueSerializer {
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<Value, SerError> {
-        Ok(Value::Array(v.iter().map(|&b| Value::Number(b as f64)).collect()))
+        Ok(Value::Array(
+            v.iter().map(|&b| Value::Number(b as f64)).collect(),
+        ))
     }
 
     fn serialize_none(self) -> Result<Value, SerError> {
@@ -357,11 +361,7 @@ impl Serializer for ValueSerializer {
         self.serialize_seq(Some(len))
     }
 
-    fn serialize_tuple_struct(
-        self,
-        _name: &'static str,
-        len: usize,
-    ) -> Result<ValueSeq, SerError> {
+    fn serialize_tuple_struct(self, _name: &'static str, len: usize) -> Result<ValueSeq, SerError> {
         self.serialize_seq(Some(len))
     }
 
@@ -386,11 +386,7 @@ impl Serializer for ValueSerializer {
         })
     }
 
-    fn serialize_struct(
-        self,
-        _name: &'static str,
-        len: usize,
-    ) -> Result<ValueMap, SerError> {
+    fn serialize_struct(self, _name: &'static str, len: usize) -> Result<ValueMap, SerError> {
         self.serialize_map(Some(len))
     }
 
@@ -495,7 +491,10 @@ impl ser::SerializeMap for ValueMap {
     }
 
     fn serialize_value<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), SerError> {
-        let k = self.key.take().ok_or_else(|| SerError("missing map key".into()))?;
+        let k = self
+            .key
+            .take()
+            .ok_or_else(|| SerError("missing map key".into()))?;
         self.map.push((k, to_value(value)));
         Ok(())
     }
@@ -744,10 +743,7 @@ mod tests {
         let v = Value::from(["a", "b"]);
         assert_eq!(
             v,
-            Value::Array(vec![
-                Value::String("a".into()),
-                Value::String("b".into()),
-            ])
+            Value::Array(vec![Value::String("a".into()), Value::String("b".into()),])
         );
     }
 
@@ -782,14 +778,25 @@ mod tests {
             score: 0.95,
         };
         let v = json!({ "module": m });
-        assert_eq!(v.to_string(), "{\"module\":{\"path\":\"/src/main.rs\",\"lines\":120,\"score\":0.95}}");
+        assert_eq!(
+            v.to_string(),
+            "{\"module\":{\"path\":\"/src/main.rs\",\"lines\":120,\"score\":0.95}}"
+        );
     }
 
     #[test]
     fn serialize_vec_of_structs() {
         let modules = vec![
-            TestModule { path: "a.rs".into(), lines: 10, score: 0.1 },
-            TestModule { path: "b.rs".into(), lines: 20, score: 0.2 },
+            TestModule {
+                path: "a.rs".into(),
+                lines: 10,
+                score: 0.1,
+            },
+            TestModule {
+                path: "b.rs".into(),
+                lines: 20,
+                score: 0.2,
+            },
         ];
         let v = json!({ "modules": modules });
         assert_eq!(
@@ -802,7 +809,10 @@ mod tests {
     fn serialize_internally_tagged_enum() {
         let e = TestEvent::GitCommit { sha: "abc".into() };
         let v = to_value(e);
-        assert_eq!(v.to_string(), "{\"type\":\"GitCommit\",\"data\":{\"sha\":\"abc\"}}");
+        assert_eq!(
+            v.to_string(),
+            "{\"type\":\"GitCommit\",\"data\":{\"sha\":\"abc\"}}"
+        );
 
         let e = TestEvent::FileSaved;
         let v = to_value(e);

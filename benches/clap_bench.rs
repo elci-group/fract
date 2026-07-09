@@ -7,7 +7,14 @@ use fract::cli::Args;
 use std::time::Instant;
 
 fn main() {
-    let args = ["fract", "--config", "fract.toml", "init", "--path", "/tmp/project"];
+    let args = [
+        "fract",
+        "--config",
+        "fract.toml",
+        "init",
+        "--path",
+        "/tmp/project",
+    ];
     let iterations = 100_000;
 
     let start = Instant::now();

@@ -76,11 +76,13 @@ impl RefactorQueue {
     }
 
     pub async fn health_counts(&self, modules: &[Module]) -> (usize, usize, usize) {
-        modules.iter().fold((0, 0, 0), |(h, w, c), m| match m.health {
-            Health::Excellent | Health::Healthy => (h + 1, w, c),
-            Health::Warning => (h, w + 1, c),
-            Health::Critical => (h, w, c + 1),
-        })
+        modules
+            .iter()
+            .fold((0, 0, 0), |(h, w, c), m| match m.health {
+                Health::Excellent | Health::Healthy => (h + 1, w, c),
+                Health::Warning => (h, w + 1, c),
+                Health::Critical => (h, w, c + 1),
+            })
     }
 }
 

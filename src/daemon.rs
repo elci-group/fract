@@ -1,12 +1,14 @@
-use crate::{
-    confidence, config::Config, config::Mode, events::EventBus, merge, refactor, validation,
-    Event, EventKind, Module, ProjectHealth, Proposal, ProposalStatus, RefactorKind,
-    queue::RefactorQueue, RefactorStats, TimelineEvent,
-};
 use crate::error::{Context, Result};
 use crate::scratch;
 use crate::time::now;
-use notify::{Config as NotifyConfig, Event as NotifyEvent, RecommendedWatcher, RecursiveMode, Watcher};
+use crate::{
+    confidence, config::Config, config::Mode, events::EventBus, merge, queue::RefactorQueue,
+    refactor, validation, Event, EventKind, Module, ProjectHealth, Proposal, ProposalStatus,
+    RefactorKind, RefactorStats, TimelineEvent,
+};
+use notify::{
+    Config as NotifyConfig, Event as NotifyEvent, RecommendedWatcher, RecursiveMode, Watcher,
+};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -140,14 +142,17 @@ impl Daemon {
             self.config.ignore_patterns.clone(),
         );
         let modules = indexer.index()?;
-        self.queue.refresh(&modules, self.config.entropy_threshold).await;
+        self.queue
+            .refresh(&modules, self.config.entropy_threshold)
+            .await;
 
         let (healthy, warning, critical) = self.queue.health_counts(&modules).await;
         let total = modules.len();
         let score = if total == 0 {
             100.0
         } else {
-            let raw = (healthy as f64 * 1.0 + warning as f64 * 0.6 + critical as f64 * 0.2) / total as f64;
+            let raw = (healthy as f64 * 1.0 + warning as f64 * 0.6 + critical as f64 * 0.2)
+                / total as f64;
             raw * 100.0
         };
 
@@ -179,7 +184,11 @@ impl Daemon {
 
             let kind = classify_kind(&module);
             let mut proposal = crate::queue::proposal_for(&module, kind);
-            info!("processing candidate {} with entropy {:.2}", path.display(), module.entropy);
+            info!(
+                "processing candidate {} with entropy {:.2}",
+                path.display(),
+                module.entropy
+            );
 
             // Build and execute refactor.
             let output = refactor::execute_proposal(
@@ -271,7 +280,8 @@ impl Daemon {
                 let mut health = self.project_health.write().await;
                 health.refactors_today.completed += 1;
                 health.refactors_today.loc_removed += proposal.diff_summary.lines_removed;
-                health.refactors_today.complexity_reduced += proposal.diff_summary.lines_removed as f64 / 100.0;
+                health.refactors_today.complexity_reduced +=
+                    proposal.diff_summary.lines_removed as f64 / 100.0;
             } else {
                 // Assisted: leave files modified, create branch is TODO.
                 proposal.status = ProposalStatus::Accepted;

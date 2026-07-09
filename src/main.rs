@@ -23,12 +23,13 @@ async fn main() -> Result<()> {
         }
         Command::Index => {
             let cfg = load_config(cli.config)?;
-            let indexer = fract::indexer::Indexer::new(
-                cfg.project_root.clone(),
-                cfg.ignore_patterns.clone(),
-            );
+            let indexer =
+                fract::indexer::Indexer::new(cfg.project_root.clone(), cfg.ignore_patterns.clone());
             let modules = indexer.index()?;
-            println!("{:<40} {:>8} {:>8} {:>8} {:>10}", "module", "lines", "funcs", "entropy", "health");
+            println!(
+                "{:<40} {:>8} {:>8} {:>8} {:>10}",
+                "module", "lines", "funcs", "entropy", "health"
+            );
             for m in modules {
                 println!(
                     "{:<40} {:>8} {:>8} {:>8.2} {:>10}",

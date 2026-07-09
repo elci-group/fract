@@ -13,7 +13,12 @@ fn main() {
         let _ = now();
     }
     let now_elapsed = start.elapsed();
-    println!("now() {} calls in {:?} ({:?} each)", iterations, now_elapsed, now_elapsed / iterations);
+    println!(
+        "now() {} calls in {:?} ({:?} each)",
+        iterations,
+        now_elapsed,
+        now_elapsed / iterations
+    );
 
     let t = now();
     let start = Instant::now();
@@ -21,5 +26,10 @@ fn main() {
         let _ = to_rfc3339(t);
     }
     let fmt_elapsed = start.elapsed();
-    println!("to_rfc3339() {} calls in {:?} ({:?} each)", iterations, fmt_elapsed, fmt_elapsed / iterations);
+    println!(
+        "to_rfc3339() {} calls in {:?} ({:?} each)",
+        iterations,
+        fmt_elapsed,
+        fmt_elapsed / iterations
+    );
 }

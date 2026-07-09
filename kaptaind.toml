@@ -7,11 +7,11 @@ ignore_file = ".kaptainignore"
 window = 5
 
 [test]
-command = "cargo test"
+command = "scripts/ci.sh"
 required = true
 
 [push]
-enabled = true
+enabled = false
 branch = "main"
 
 [staging]

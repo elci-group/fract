@@ -14,7 +14,11 @@ fn main() {
     let start = Instant::now();
     let count = Walk::new(root.clone(), vec!["target".into()])
         .files()
-        .filter(|r| r.as_ref().map(|p| p.extension().and_then(|e| e.to_str()) == Some("rs")).unwrap_or(true))
+        .filter(|r| {
+            r.as_ref()
+                .map(|p| p.extension().and_then(|e| e.to_str()) == Some("rs"))
+                .unwrap_or(true)
+        })
         .count();
     let walk_time = start.elapsed();
     println!("walk {} rust files in {:?}", count, walk_time);
@@ -42,7 +46,10 @@ fn main() {
         PythonScanner::count_imports(&python_sample);
     }
     let python_time = start.elapsed();
-    println!("python scanner {:?} for {iterations} iterations", python_time);
+    println!(
+        "python scanner {:?} for {iterations} iterations",
+        python_time
+    );
 
     let start = Instant::now();
     for _ in 0..iterations {

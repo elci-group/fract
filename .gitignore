@@ -2,3 +2,4 @@
 Cargo.lock
 *.log
 .kaptaind/
+.amber/

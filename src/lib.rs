@@ -4,6 +4,7 @@
 //! proposes semantic refactorings, validates them, and applies them safely.
 
 pub mod complexity;
+pub mod confidence;
 pub mod config;
 pub mod daemon;
 pub mod events;
@@ -14,7 +15,6 @@ pub mod queue;
 pub mod refactor;
 pub mod validation;
 pub mod web;
-pub mod confidence;
 
 // Internal zero-dependency replacements for third-party crates.
 pub mod cli;

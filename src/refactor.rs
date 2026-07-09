@@ -53,16 +53,17 @@ impl RefactorEngine for MockRefactorEngine {
                     files.push((ctx.module.path.clone(), public.join("\n")));
                     let mut internal_path = ctx.module.path.clone();
                     internal_path.set_extension("");
-                    let stem = internal_path.file_stem().unwrap_or_default().to_string_lossy();
+                    let stem = internal_path
+                        .file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy();
                     let internal_file = PathBuf::from(format!("{}_internal.rs", stem));
                     files.push((internal_file, internal.join("\n")));
                 }
                 _ => {
                     // Default: extract comments/header as migration notes and return cleaned file.
-                    let cleaned: Vec<_> = lines
-                        .into_iter()
-                        .filter(|l| !l.trim().is_empty())
-                        .collect();
+                    let cleaned: Vec<_> =
+                        lines.into_iter().filter(|l| !l.trim().is_empty()).collect();
                     files.push((ctx.module.path, cleaned.join("\n")));
                 }
             }
@@ -165,7 +166,8 @@ pub async fn execute_proposal(
 }
 
 async fn find_module(root: &Path, relative: &Path) -> Result<Module> {
-    let indexer = crate::indexer::Indexer::new(root.to_path_buf(), crate::config::default_ignore_patterns());
+    let indexer =
+        crate::indexer::Indexer::new(root.to_path_buf(), crate::config::default_ignore_patterns());
     let modules = indexer.index()?;
     modules
         .into_iter()

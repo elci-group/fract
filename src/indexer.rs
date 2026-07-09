@@ -48,15 +48,15 @@ impl Indexer {
     }
 
     fn analyze_file(&self, path: &Path, language: Language) -> Result<Option<Module>> {
-        let text = std::fs::read_to_string(path)
-            .with_context(|| format!("reading {}", path.display()))?;
+        let text =
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         let lines = text.lines().count();
         if lines == 0 {
             return Ok(None);
         }
 
-        let metadata = std::fs::metadata(path)
-            .with_context(|| format!("metadata for {}", path.display()))?;
+        let metadata =
+            std::fs::metadata(path).with_context(|| format!("metadata for {}", path.display()))?;
         let last_modified: Timestamp = metadata.modified().unwrap_or_else(|_| now());
 
         let (functions, cyclomatic) = match language {
@@ -118,7 +118,11 @@ impl Indexer {
             if module.language == Language::Rust && line.starts_with("use ") {
                 // Best-effort: ignore external crates.
                 if let Some(rest) = line.strip_prefix("use crate::") {
-                    let first = rest.split("::").next().unwrap_or(rest).trim_end_matches(';');
+                    let first = rest
+                        .split("::")
+                        .next()
+                        .unwrap_or(rest)
+                        .trim_end_matches(';');
                     deps.push(PathBuf::from(format!("src/{}.rs", first)));
                 }
             }

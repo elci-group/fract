@@ -22,7 +22,11 @@ pub fn score(_module: &Module, proposal: &Proposal, validation: &ValidationRepor
 }
 
 fn bool_score(ok: bool) -> f64 {
-    if ok { 1.0 } else { 0.0 }
+    if ok {
+        1.0
+    } else {
+        0.0
+    }
 }
 
 fn coverage_score(delta: f64) -> f64 {

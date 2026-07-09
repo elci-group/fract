@@ -89,13 +89,27 @@ impl Config {
     }
 }
 
-fn default_entropy_threshold() -> f64 { 0.82 }
-fn default_confidence_threshold() -> f64 { 0.90 }
-fn default_quiet_period_secs() -> u64 { 120 }
-fn default_bind() -> String { "127.0.0.1:7345".to_string() }
-fn default_llm_provider() -> String { "mock".to_string() }
-fn default_llm_model() -> String { "gpt-oss-120b".to_string() }
-fn default_max_tokens() -> usize { 32768 }
+fn default_entropy_threshold() -> f64 {
+    0.82
+}
+fn default_confidence_threshold() -> f64 {
+    0.90
+}
+fn default_quiet_period_secs() -> u64 {
+    120
+}
+fn default_bind() -> String {
+    "127.0.0.1:7345".to_string()
+}
+fn default_llm_provider() -> String {
+    "mock".to_string()
+}
+fn default_llm_model() -> String {
+    "gpt-oss-120b".to_string()
+}
+fn default_max_tokens() -> usize {
+    32768
+}
 
 fn default_watch_patterns() -> Vec<String> {
     vec![
