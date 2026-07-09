@@ -135,10 +135,13 @@ impl JsTsScanner {
 }
 
 fn count_branch_tokens(line: &str, keywords: &[&str]) -> usize {
+    // Mask string/char literals and trailing `//` comments so keywords inside
+    // them (e.g. `let s = "if for while";`) are not counted as branches.
+    let clean = mask_code(line);
     let mut count = 0;
     let mut in_and = false;
     let mut in_or = false;
-    for ch in line.chars() {
+    for ch in clean.chars() {
         if ch == '&' {
             if in_and {
                 count += 1;
@@ -161,12 +164,61 @@ fn count_branch_tokens(line: &str, keywords: &[&str]) -> usize {
         }
     }
 
-    for token in line.split(|c: char| !c.is_alphanumeric() && c != '_') {
+    for token in clean.split(|c: char| !c.is_alphanumeric() && c != '_') {
         if keywords.contains(&token) {
             count += 1;
         }
     }
     count
+}
+
+/// Replace the contents of string/char literals with spaces and drop everything
+/// after a `//` line comment, preserving token boundaries for the caller.
+fn mask_code(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut chars = line.chars().peekable();
+    let mut in_str = false;
+    let mut in_chr = false;
+    let mut escape = false;
+    while let Some(c) = chars.next() {
+        if in_str {
+            if escape {
+                escape = false;
+            } else if c == '\\' {
+                escape = true;
+            } else if c == '"' {
+                in_str = false;
+            }
+            out.push(' ');
+            continue;
+        }
+        if in_chr {
+            if escape {
+                escape = false;
+            } else if c == '\\' {
+                escape = true;
+            } else if c == '\'' {
+                in_chr = false;
+            }
+            out.push(' ');
+            continue;
+        }
+        if c == '"' {
+            in_str = true;
+            out.push(' ');
+            continue;
+        }
+        if c == '\'' {
+            in_chr = true;
+            out.push(' ');
+            continue;
+        }
+        if c == '/' && matches!(chars.peek(), Some('/')) {
+            break; // rest of the line is a comment
+        }
+        out.push(c);
+    }
+    out
 }
 
 fn is_arrow_function(line: &str) -> bool {
@@ -275,5 +327,73 @@ fn five() {}
     fn jsts_counts_imports() {
         let text = "import fs from 'fs';\nimport { x } from './x';\nconst y = 1;";
         assert_eq!(JsTsScanner::count_imports(text), 2);
+    }
+
+    #[test]
+    fn rust_ignores_keywords_in_strings_and_comments() {
+        let text = r#"
+let s = "if for while match";
+let t = "escaped \"if\" still masked";
+// if else match while for loop
+if real && other || done { }
+"#;
+        // Only the real `if`, `&&`, `||` on the last line count: if + && + || = 3
+        assert_eq!(RustScanner::count_branches(text), 3);
+    }
+
+    #[test]
+    fn handles_crlf_and_tabs() {
+        let text = "if a {\r\n\tif b {\r\n\t}\r\n}\r\n";
+        assert_eq!(RustScanner::count_branches(text), 2);
+    }
+
+    #[test]
+    fn mask_code_blanks_literals() {
+        let masked = mask_code(r#"let s = "if for"; // if"#);
+        assert!(masked.starts_with("let s = "));
+        assert!(!masked.contains("if"));
+        assert!(!masked.contains("for"));
+    }
+
+    #[test]
+    fn property_string_keywords_never_counted() {
+        // For randomly generated lines, keywords inside a quoted string must not
+        // increase the branch count beyond the real `if` keywords outside it.
+        let mut state: u64 = 0xfeed_face_cafe_babe;
+        for _ in 0..400 {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            let real = (state % 5) as usize;
+            let hidden = ((state >> 8) % 5) as usize;
+            let mut line = String::new();
+            for _ in 0..real {
+                line.push_str("if x ");
+            }
+            line.push('"');
+            for _ in 0..hidden {
+                line.push_str("for y ");
+            }
+            line.push('"');
+            assert_eq!(RustScanner::count_branches(&line), real, "line={line:?}");
+        }
+    }
+
+    #[test]
+    fn property_mask_is_idempotent() {
+        let mut state: u64 = 0x0dd_f00d;
+        let alphabet = ['i', 'f', ' ', '"', '/', 'e', '\\', '\n'];
+        for _ in 0..300 {
+            state = state.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+            let len = (state % 24) as usize;
+            let mut s = String::new();
+            for _ in 0..len {
+                state = state.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                s.push(alphabet[(state as usize) % alphabet.len()]);
+            }
+            let once = mask_code(&s);
+            let twice = mask_code(&once);
+            assert_eq!(once, twice, "mask not idempotent for {s:?}");
+        }
     }
 }

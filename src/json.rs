@@ -112,6 +112,255 @@ fn write_string(s: &str, out: &mut String) {
     out.push('"');
 }
 
+/// Parse a JSON string into a [`Value`]. This is the inverse of
+/// [`Value::to_string`] for the subset of JSON that this crate emits, and is
+/// strict enough for tests and config-free round-tripping (numbers are parsed
+/// as `f64`; `NaN`/`Infinity` are rejected).
+pub fn parse(s: &str) -> Result<Value, String> {
+    let mut p = Parser::new(s);
+    p.skip_ws();
+    let v = p.parse_value()?;
+    p.skip_ws();
+    if p.pos != p.bytes.len() {
+        return Err(format!("trailing data at byte {}", p.pos));
+    }
+    Ok(v)
+}
+
+struct Parser<'a> {
+    bytes: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> Parser<'a> {
+    fn new(s: &'a str) -> Self {
+        Self {
+            bytes: s.as_bytes(),
+            pos: 0,
+        }
+    }
+
+    fn peek(&self) -> Option<u8> {
+        self.bytes.get(self.pos).copied()
+    }
+
+    fn next_byte(&mut self) -> Option<u8> {
+        let b = self.peek();
+        if b.is_some() {
+            self.pos += 1;
+        }
+        b
+    }
+
+    fn skip_ws(&mut self) {
+        while matches!(self.peek(), Some(b' ' | b'\n' | b'\r' | b'\t')) {
+            self.pos += 1;
+        }
+    }
+
+    fn expect(&mut self, b: u8) -> Result<(), String> {
+        match self.next_byte() {
+            Some(got) if got == b => Ok(()),
+            Some(got) => Err(format!(
+                "expected '{}' but got '{}' at byte {}",
+                b as char, got as char, self.pos
+            )),
+            None => Err(format!("expected '{}' at eof", b as char)),
+        }
+    }
+
+    fn expect_lit(&mut self, lit: &[u8]) -> Result<(), String> {
+        for &b in lit {
+            self.expect(b)?;
+        }
+        Ok(())
+    }
+
+    fn parse_value(&mut self) -> Result<Value, String> {
+        self.skip_ws();
+        match self
+            .peek()
+            .ok_or_else(|| "unexpected end of input".to_string())?
+        {
+            b'n' => {
+                self.expect_lit(b"null")?;
+                Ok(Value::Null)
+            }
+            b't' => {
+                self.expect_lit(b"true")?;
+                Ok(Value::Bool(true))
+            }
+            b'f' => {
+                self.expect_lit(b"false")?;
+                Ok(Value::Bool(false))
+            }
+            b'"' => Ok(Value::String(self.parse_string()?)),
+            b'[' => self.parse_array(),
+            b'{' => self.parse_object(),
+            b'-' | b'0'..=b'9' => Ok(Value::Number(self.parse_number()?)),
+            other => Err(format!(
+                "unexpected '{}' at byte {}",
+                other as char, self.pos
+            )),
+        }
+    }
+
+    fn parse_array(&mut self) -> Result<Value, String> {
+        self.expect(b'[')?;
+        let mut arr = Vec::new();
+        self.skip_ws();
+        if self.peek() == Some(b']') {
+            self.pos += 1;
+            return Ok(Value::Array(arr));
+        }
+        loop {
+            arr.push(self.parse_value()?);
+            self.skip_ws();
+            match self.next_byte() {
+                Some(b',') => self.skip_ws(),
+                Some(b']') => return Ok(Value::Array(arr)),
+                Some(got) => {
+                    return Err(format!(
+                        "expected ',' or ']' but got '{}' at byte {}",
+                        got as char, self.pos
+                    ))
+                }
+                None => return Err("unterminated array".into()),
+            }
+        }
+    }
+
+    fn parse_object(&mut self) -> Result<Value, String> {
+        self.expect(b'{')?;
+        let mut obj = Value::object();
+        self.skip_ws();
+        if self.peek() == Some(b'}') {
+            self.pos += 1;
+            return Ok(obj);
+        }
+        loop {
+            self.skip_ws();
+            let key = self.parse_string()?;
+            self.skip_ws();
+            self.expect(b':')?;
+            let value = self.parse_value()?;
+            obj.insert(key, value);
+            self.skip_ws();
+            match self.next_byte() {
+                Some(b',') => self.skip_ws(),
+                Some(b'}') => return Ok(obj),
+                Some(got) => {
+                    return Err(format!(
+                        "expected ',' or '}}' but got '{}' at byte {}",
+                        got as char, self.pos
+                    ))
+                }
+                None => return Err("unterminated object".into()),
+            }
+        }
+    }
+
+    fn parse_number(&mut self) -> Result<f64, String> {
+        let start = self.pos;
+        while matches!(
+            self.peek(),
+            Some(b'0'..=b'9' | b'.' | b'+' | b'-' | b'e' | b'E')
+        ) {
+            self.pos += 1;
+        }
+        let text = std::str::from_utf8(&self.bytes[start..self.pos])
+            .map_err(|_| "invalid utf-8 in number".to_string())?;
+        let n: f64 = text
+            .parse()
+            .map_err(|_| format!("invalid number {text:?} at byte {start}"))?;
+        if !n.is_finite() {
+            return Err(format!("non-finite number {text:?} at byte {start}"));
+        }
+        Ok(n)
+    }
+
+    fn parse_string(&mut self) -> Result<String, String> {
+        self.expect(b'"')?;
+        let mut out = String::new();
+        loop {
+            let c = self
+                .read_char()
+                .ok_or_else(|| "unterminated string".to_string())?;
+            match c {
+                '"' => return Ok(out),
+                '\\' => {
+                    let e = self.read_char().ok_or_else(|| "bad escape".to_string())?;
+                    match e {
+                        '"' => out.push('"'),
+                        '\\' => out.push('\\'),
+                        '/' => out.push('/'),
+                        'b' => out.push('\u{0008}'),
+                        'f' => out.push('\u{000C}'),
+                        'n' => out.push('\n'),
+                        'r' => out.push('\r'),
+                        't' => out.push('\t'),
+                        'u' => {
+                            let hi = self.read_hex4()?;
+                            let code = if (0xD800..=0xDBFF).contains(&hi) {
+                                self.expect(b'\\')?;
+                                self.expect(b'u')?;
+                                let lo = self.read_hex4()?;
+                                if !(0xDC00..=0xDFFF).contains(&lo) {
+                                    return Err(format!(
+                                        "invalid surrogate pair at byte {}",
+                                        self.pos
+                                    ));
+                                }
+                                0x1_0000 + (((hi - 0xD800) << 10) | (lo - 0xDC00))
+                            } else {
+                                hi
+                            };
+                            let ch = char::from_u32(code).ok_or_else(|| {
+                                format!("invalid unicode scalar {code:x} at byte {}", self.pos)
+                            })?;
+                            out.push(ch);
+                        }
+                        _ => return Err(format!("invalid escape '\\{e}' at byte {}", self.pos)),
+                    }
+                }
+                c if (c as u32) < 0x20 => {
+                    return Err(format!("unescaped control character at byte {}", self.pos));
+                }
+                c => out.push(c),
+            }
+        }
+    }
+
+    fn read_hex4(&mut self) -> Result<u32, String> {
+        let mut acc = 0u32;
+        for _ in 0..4 {
+            let b = self
+                .next_byte()
+                .ok_or_else(|| "truncated \\u escape".to_string())?;
+            let d = match b {
+                b'0'..=b'9' => (b - b'0') as u32,
+                b'a'..=b'f' => (b - b'a' + 10) as u32,
+                b'A'..=b'F' => (b - b'A' + 10) as u32,
+                _ => {
+                    return Err(format!(
+                        "invalid hex digit '{}' at byte {}",
+                        b as char, self.pos
+                    ))
+                }
+            };
+            acc = (acc << 4) | d;
+        }
+        Ok(acc)
+    }
+
+    fn read_char(&mut self) -> Option<char> {
+        let tail = std::str::from_utf8(&self.bytes[self.pos..]).ok()?;
+        let c = tail.chars().next()?;
+        self.pos += c.len_utf8();
+        Some(c)
+    }
+}
+
 macro_rules! impl_from_int {
     ($($t:ty),*) => {
         $(
@@ -849,5 +1098,143 @@ mod tests {
     fn re_exported_macro_path() {
         let v = crate::json::json!({ "ok": true });
         assert_eq!(v.to_string(), "{\"ok\":true}");
+    }
+
+    #[test]
+    fn parse_roundtrips_scalars() {
+        for (input, expected) in [
+            ("null", Value::Null),
+            ("true", Value::Bool(true)),
+            ("false", Value::Bool(false)),
+            ("0", Value::Number(0.0)),
+            ("-7", Value::Number(-7.0)),
+            ("2.71", Value::Number(2.71)),
+            ("1.5e10", Value::Number(1.5e10)),
+            ("\"hi\"", Value::String("hi".into())),
+        ] {
+            assert_eq!(parse(input).unwrap(), expected, "input {input}");
+        }
+    }
+
+    #[test]
+    fn parse_roundtrips_nested_structure() {
+        let v = json!({
+            "name": "fract",
+            "counts": [1, 2, 3],
+            "nested": { "ok": true, "nothing": null }
+        });
+        let s = v.to_string();
+        let back = parse(&s).unwrap();
+        assert_eq!(back, v);
+    }
+
+    #[test]
+    fn parse_handles_unicode_and_surrogates() {
+        // \u00e9 = é ; surrogate pair for U+1F600 (😀)
+        let v = parse("\"caf\\u00e9 \\uD83D\\uDE00\"").unwrap();
+        assert_eq!(v, Value::String("café 😀".into()));
+    }
+
+    #[test]
+    fn parse_decodes_standard_escapes() {
+        let v = parse("\"a\\nb\\t\\\\c\\\"\"").unwrap();
+        assert_eq!(v, Value::String("a\nb\t\\c\"".into()));
+    }
+
+    #[test]
+    fn parse_rejects_unescaped_control_char() {
+        assert!(parse("\"bad\x01\"").is_err());
+    }
+
+    #[test]
+    fn parse_rejects_trailing_data() {
+        assert!(parse("true false").is_err());
+        assert!(parse("[1] x").is_err());
+    }
+
+    #[test]
+    fn parse_rejects_non_finite_number() {
+        assert!(parse("1e9999").is_err());
+    }
+
+    #[test]
+    fn parse_rejects_malformed() {
+        assert!(parse("{").is_err());
+        assert!(parse("[1,]").is_err());
+        assert!(parse("{\"a\"}").is_err());
+        assert!(parse("nope").is_err());
+        assert!(parse("\"\\u12GH\"").is_err());
+    }
+
+    #[test]
+    fn write_string_escapes_control_chars() {
+        let v = Value::String("a\x00b\x1fc".into());
+        assert_eq!(v.to_string(), "\"a\\u0000b\\u001fc\"");
+    }
+
+    #[test]
+    fn large_integer_round_trips_as_number() {
+        // 2^53 + 1 is not exactly representable as f64; it rounds to 2^53.
+        // The point of the test is that integers beyond i64 still parse as
+        // finite f64 instead of being rejected.
+        let v = parse("9007199254740993").unwrap();
+        assert!(matches!(
+            v,
+            Value::Number(n) if (n - 9_007_199_254_740_992.0).abs() < 2.0
+        ));
+    }
+
+    fn lcg_next(state: &mut u64) -> u64 {
+        *state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        *state
+    }
+
+    fn gen_string(state: &mut u64) -> String {
+        const ALPHA: &[char] = &['a', 'b', 'c', ' ', '"', '\\', '/', '\n', '\t', 'é'];
+        let len = (lcg_next(state) % 8) as usize;
+        let mut s = String::new();
+        for _ in 0..len {
+            let idx = (lcg_next(state) % ALPHA.len() as u64) as usize;
+            s.push(ALPHA[idx]);
+        }
+        s
+    }
+
+    fn gen_value(state: &mut u64, depth: usize) -> Value {
+        let branches = if depth == 0 { 4 } else { 6 };
+        match (lcg_next(state) % branches) as u8 {
+            0 => Value::Null,
+            1 => Value::Bool(lcg_next(state) & 1 == 1),
+            2 => {
+                let n = (lcg_next(state) % 2000) as i64 - 1000;
+                Value::Number(n as f64)
+            }
+            3 => Value::String(gen_string(state)),
+            4 => {
+                let len = (lcg_next(state) % 4) as usize;
+                Value::Array((0..len).map(|_| gen_value(state, depth - 1)).collect())
+            }
+            _ => {
+                let len = (lcg_next(state) % 4) as usize;
+                let mut obj = Value::object();
+                for i in 0..len {
+                    obj.insert(format!("k{i}"), gen_value(state, depth - 1));
+                }
+                obj
+            }
+        }
+    }
+
+    #[test]
+    fn property_generated_values_roundtrip() {
+        let mut state: u64 = 0x1234_5678_9abc_def0;
+        for _ in 0..500 {
+            let v = gen_value(&mut state, 3);
+            let s = v.to_string();
+            let back = parse(&s).unwrap_or_else(|e| panic!("parse failed for {s}: {e}"));
+            assert_eq!(back, v, "roundtrip mismatch for {s}");
+        }
     }
 }

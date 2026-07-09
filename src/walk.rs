@@ -6,9 +6,16 @@ use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 
+/// Dependency-free recursive directory walker.
+///
+/// On Unix, symlink loops are prevented by tracking `(dev, ino)` of every
+/// directory entered; a directory whose inode was already seen is skipped.
+/// On non-Unix platforms symlinks are **not followed at all**, which avoids
+/// loops conservatively at the cost of not traversing symlinked directories.
 pub struct Walk {
     root: PathBuf,
     ignore: Vec<String>,
+    max_depth: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -20,14 +27,27 @@ pub struct Entry {
 
 impl Walk {
     pub fn new(root: PathBuf, ignore: Vec<String>) -> Self {
-        Self { root, ignore }
+        Self {
+            root,
+            ignore,
+            max_depth: None,
+        }
+    }
+
+    /// Limit recursion to `depth` levels below the root (root's direct children
+    /// are depth 1). `None` (the default) means unlimited.
+    pub fn with_max_depth(mut self, depth: usize) -> Self {
+        self.max_depth = Some(depth);
+        self
     }
 
     pub fn files(self) -> impl Iterator<Item = io::Result<PathBuf>> {
         WalkIter {
             root: self.root,
             ignore: self.ignore,
+            max_depth: self.max_depth,
             stack: Vec::new(),
+            depths: Vec::new(),
             #[cfg(unix)]
             seen: HashSet::new(),
             #[cfg(not(unix))]
@@ -46,9 +66,21 @@ type SeenId = PathBuf;
 struct WalkIter {
     root: PathBuf,
     ignore: Vec<String>,
+    max_depth: Option<usize>,
     stack: Vec<ReadDir>,
+    depths: Vec<usize>,
     seen: HashSet<SeenId>,
     started: bool,
+}
+
+impl WalkIter {
+    /// Whether we may descend from a frame at `cur_depth` into its child dir.
+    fn may_descend(&self, cur_depth: usize) -> bool {
+        match self.max_depth {
+            Some(m) => cur_depth < m,
+            None => true,
+        }
+    }
 }
 
 impl Iterator for WalkIter {
@@ -58,12 +90,16 @@ impl Iterator for WalkIter {
         if !self.started {
             self.started = true;
             match fs::read_dir(&self.root) {
-                Ok(rd) => self.stack.push(rd),
+                Ok(rd) => {
+                    self.stack.push(rd);
+                    self.depths.push(1);
+                }
                 Err(e) => return Some(Err(e)),
             }
         }
 
         while let Some(rd) = self.stack.last_mut() {
+            let cur_depth = *self.depths.last().unwrap_or(&1);
             match rd.next() {
                 Some(Ok(entry)) => {
                     let path = entry.path();
@@ -94,9 +130,14 @@ impl Iterator for WalkIter {
                                 if self.is_ignored(rel) {
                                     continue;
                                 }
-                                match fs::read_dir(&path) {
-                                    Ok(rd) => self.stack.push(rd),
-                                    Err(e) => return Some(Err(e)),
+                                if self.may_descend(cur_depth) {
+                                    match fs::read_dir(&path) {
+                                        Ok(rd) => {
+                                            self.stack.push(rd);
+                                            self.depths.push(cur_depth + 1);
+                                        }
+                                        Err(_) => continue, // permission denied: skip
+                                    }
                                 }
                             } else if target.is_file() {
                                 let rel = path.strip_prefix(&self.root).unwrap_or(&path);
@@ -127,9 +168,14 @@ impl Iterator for WalkIter {
                         if self.is_ignored(rel) {
                             continue;
                         }
-                        match fs::read_dir(&path) {
-                            Ok(rd) => self.stack.push(rd),
-                            Err(e) => return Some(Err(e)),
+                        if self.may_descend(cur_depth) {
+                            match fs::read_dir(&path) {
+                                Ok(rd) => {
+                                    self.stack.push(rd);
+                                    self.depths.push(cur_depth + 1);
+                                }
+                                Err(_) => continue, // permission denied: skip
+                            }
                         }
                     } else if file_type.is_file() {
                         let rel = path.strip_prefix(&self.root).unwrap_or(&path);
@@ -142,6 +188,7 @@ impl Iterator for WalkIter {
                 Some(Err(e)) => return Some(Err(e)),
                 None => {
                     self.stack.pop();
+                    self.depths.pop();
                 }
             }
         }
@@ -270,5 +317,59 @@ mod tests {
     #[test]
     fn glob_leading_slash_is_ignored() {
         assert!(glob_match("foo.rs", "/foo.rs"));
+    }
+
+    #[test]
+    fn max_depth_limits_recursion() {
+        let root = temp_tree("walk_depth");
+        fs::create_dir_all(root.join("a/b/c")).unwrap();
+        fs::write(root.join("top.txt"), "").unwrap();
+        fs::write(root.join("a/one.txt"), "").unwrap();
+        fs::write(root.join("a/b/two.txt"), "").unwrap();
+        fs::write(root.join("a/b/c/three.txt"), "").unwrap();
+
+        let collect = |depth: usize| -> Vec<String> {
+            let mut v: Vec<String> = Walk::new(root.clone(), Vec::new())
+                .with_max_depth(depth)
+                .files()
+                .map(|r| {
+                    r.unwrap()
+                        .strip_prefix(&root)
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect();
+            v.sort();
+            v
+        };
+
+        assert_eq!(collect(1), vec!["top.txt"]);
+        assert_eq!(collect(2), vec!["a/one.txt", "top.txt"]);
+        assert_eq!(collect(3), vec!["a/b/two.txt", "a/one.txt", "top.txt"]);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_subdir_does_not_abort_walk() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = temp_tree("walk_perm");
+        fs::create_dir_all(root.join("open")).unwrap();
+        fs::create_dir_all(root.join("locked")).unwrap();
+        fs::write(root.join("open/yes.txt"), "").unwrap();
+        fs::write(root.join("locked/secret.txt"), "").unwrap();
+        fs::set_permissions(root.join("locked"), fs::Permissions::from_mode(0o000)).unwrap();
+
+        // As a non-root user the locked dir is skipped; as root it is read.
+        // Either way the walk must complete and surface the readable file.
+        let results: Vec<_> = Walk::new(root.clone(), Vec::new()).files().collect();
+        let paths: Vec<_> = results.into_iter().filter_map(|r| r.ok()).collect();
+        assert!(paths.iter().any(|p| p.ends_with("open/yes.txt")));
+
+        // Restore so cleanup can remove the dir.
+        let _ = fs::set_permissions(root.join("locked"), fs::Permissions::from_mode(0o755));
+        let _ = fs::remove_dir_all(&root);
     }
 }

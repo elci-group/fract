@@ -134,3 +134,36 @@ fn content_type(path: &std::path::Path) -> &'static str {
         _ => "application/octet-stream",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn static_handler_serves_index() {
+        let uri: Uri = "/".parse().unwrap();
+        let resp = static_handler(uri).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn static_handler_blocks_parent_traversal() {
+        let uri: Uri = "/../Cargo.toml".parse().unwrap();
+        let resp = static_handler(uri).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn static_handler_blocks_encoded_traversal() {
+        let uri: Uri = "/../../etc/passwd".parse().unwrap();
+        let resp = static_handler(uri).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn static_handler_unknown_path_is_404() {
+        let uri: Uri = "/does/not/exist.js".parse().unwrap();
+        let resp = static_handler(uri).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+}

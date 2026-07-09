@@ -40,6 +40,19 @@ pub fn parse_rfc3339(s: &str) -> Result<Timestamp, String> {
         .parse()
         .map_err(|e| format!("invalid day: {e}"))?;
 
+    if !(1970..=9999).contains(&year) {
+        return Err(format!("year {year} out of supported range 1970..=9999"));
+    }
+    if !(1..=12).contains(&month) {
+        return Err(format!("month {month} out of range 1..=12"));
+    }
+    let dim = days_in_month(year, month);
+    if day == 0 || day > dim {
+        return Err(format!(
+            "day {day} out of range 1..={dim} for month {month}"
+        ));
+    }
+
     let (time, frac) = if let Some((t, f)) = time.split_once('.') {
         let frac = format!("{:0<9}", f);
         let frac: u32 = frac.parse().map_err(|e| format!("invalid fraction: {e}"))?;
@@ -64,6 +77,16 @@ pub fn parse_rfc3339(s: &str) -> Result<Timestamp, String> {
         .ok_or("missing second")?
         .parse()
         .map_err(|e| format!("invalid second: {e}"))?;
+
+    if hour > 23 {
+        return Err(format!("hour {hour} out of range 0..=23"));
+    }
+    if minute > 59 {
+        return Err(format!("minute {minute} out of range 0..=59"));
+    }
+    if second > 59 {
+        return Err(format!("second {second} out of range 0..=59"));
+    }
 
     let days = ymd_to_days(year, month, day);
     let secs = days as u64 * 86_400 + hour * 3_600 + minute * 60 + second;
@@ -301,5 +324,65 @@ mod tests {
             "unexpected encoded: {}",
             encoded
         );
+    }
+
+    #[test]
+    fn parse_rejects_out_of_range_month() {
+        assert!(parse_rfc3339("2024-00-15T08:30:00Z").is_err());
+        assert!(parse_rfc3339("2024-13-15T08:30:00Z").is_err());
+    }
+
+    #[test]
+    fn parse_rejects_out_of_range_day() {
+        assert!(parse_rfc3339("2024-01-00T08:30:00Z").is_err());
+        assert!(parse_rfc3339("2024-01-32T08:30:00Z").is_err());
+        assert!(parse_rfc3339("2023-02-29T08:30:00Z").is_err()); // non-leap
+        assert!(parse_rfc3339("2024-04-31T08:30:00Z").is_err());
+    }
+
+    #[test]
+    fn parse_accepts_leap_day() {
+        assert!(parse_rfc3339("2024-02-29T08:30:00Z").is_ok());
+        assert!(parse_rfc3339("2000-02-29T00:00:00Z").is_ok());
+    }
+
+    #[test]
+    fn parse_rejects_out_of_range_time() {
+        assert!(parse_rfc3339("2024-01-15T24:00:00Z").is_err());
+        assert!(parse_rfc3339("2024-01-15T08:60:00Z").is_err());
+        assert!(parse_rfc3339("2024-01-15T08:30:60Z").is_err());
+    }
+
+    #[test]
+    fn parse_rejects_year_out_of_range() {
+        assert!(parse_rfc3339("1969-12-31T23:59:59Z").is_err());
+        assert!(parse_rfc3339("10000-01-01T00:00:00Z").is_err());
+    }
+
+    #[test]
+    fn boundary_years_roundtrip() {
+        for secs in [0u64, 86_400, 31_536_000, 1_700_000_000] {
+            let t = SystemTime::UNIX_EPOCH + Duration::from_secs(secs);
+            let s = to_rfc3339(t);
+            let back = parse_rfc3339(&s).unwrap();
+            assert_eq!(back, t, "roundtrip failed for {s}");
+        }
+    }
+
+    #[test]
+    fn property_roundtrip_over_epoch_range() {
+        // Deterministic LCG so we sample many seconds without a `rand` dep.
+        let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
+        for _ in 0..2_000 {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            // Keep within a range the formatter can represent (1970..~2500).
+            let secs = state % 17_000_000_000;
+            let t = SystemTime::UNIX_EPOCH + Duration::from_secs(secs);
+            let s = to_rfc3339(t);
+            let back = parse_rfc3339(&s).expect(&s);
+            assert_eq!(back, t, "roundtrip drift for {s}");
+        }
     }
 }
