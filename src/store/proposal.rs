@@ -95,11 +95,15 @@ mod tests {
 
     fn temp_dir() -> PathBuf {
         // Rust runs the test binary's tests in parallel threads within one
-        // process, so a pid-only name would collide. Mix in a per-call counter.
+        // process, so a pid-only name would collide. Mix in a per-module prefix
+        // and a per-call counter (each test module has its own static counter).
         use std::sync::atomic::{AtomicU64, Ordering};
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("fract-store-test-{}-{n}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "fract-store-proposal-test-{}-{n}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
