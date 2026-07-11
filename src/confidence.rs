@@ -74,6 +74,8 @@ mod tests {
                 lines_removed: 150,
             },
             migration_notes: vec![],
+            changed_files: vec![],
+            pr_body: None,
             timeline: vec![],
         }
     }
@@ -90,7 +92,7 @@ mod tests {
             fan_in: 3,
             duplicates: 5,
             edit_frequency: 0.0,
-            confidence: 0.0,
+            confidence: None,
             churn: 0,
             test_coverage: 0.0,
             entropy: 0.0,

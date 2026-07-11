@@ -47,6 +47,26 @@ impl Indexer {
         crate::walk::glob_match(path, pat)
     }
 
+    /// Re-index a single path (for incremental notify updates). Returns `None`
+    /// for empty/unsupported files. `path` may be absolute (under `self.root`)
+    /// or already relative.
+    pub fn index_file(&self, path: &Path) -> Result<Option<Module>> {
+        let abs = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            self.root.join(path)
+        };
+        let lang = Language::from_path(&abs);
+        if lang == Language::Other {
+            return Ok(None);
+        }
+        if !abs.exists() {
+            // Deleted between the notify event and now: treat as removal.
+            return Ok(None);
+        }
+        self.analyze_file(&abs, lang)
+    }
+
     fn analyze_file(&self, path: &Path, language: Language) -> Result<Option<Module>> {
         let text =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
@@ -81,7 +101,7 @@ impl Indexer {
         let churn = 0; // Would integrate with git history.
         let test_coverage = 0.0; // Would integrate with coverage tooling.
         let edit_frequency = 0.0; // Would derive from event history.
-        let confidence = 0.5; // Placeholder for AI-generated confidence.
+        let confidence = None; // No AI confidence at index time; measured later per-proposal.
 
         let mut module = Module {
             path: path.strip_prefix(&self.root).unwrap_or(path).to_path_buf(),
@@ -159,4 +179,64 @@ fn estimate_duplication(text: &str) -> usize {
         }
     }
     dupes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn crate_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    }
+
+    #[test]
+    fn index_file_matches_full_index_for_one_module() {
+        let root = crate_root();
+        let indexer = Indexer::new(root.clone(), crate::config::default_ignore_patterns());
+        let modules = indexer.index().expect("full index");
+        let target = modules
+            .iter()
+            .find(|m| m.path.as_path() == Path::new("src/model.rs"))
+            .or_else(|| modules.first())
+            .expect("at least one module")
+            .clone();
+        let full_path = root.join(&target.path);
+        let single = indexer
+            .index_file(&full_path)
+            .expect("index_file ok")
+            .expect("index_file some");
+        assert_eq!(single.lines, target.lines);
+        assert_eq!(single.functions, target.functions);
+        assert!(
+            (single.entropy - target.entropy).abs() < 1e-9,
+            "entropy mismatch: {} vs {}",
+            single.entropy,
+            target.entropy
+        );
+    }
+
+    #[test]
+    fn index_file_returns_none_for_empty_and_other() {
+        // Unique temp dir using only std (the `tempfile` crate is forbidden).
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("fract-indexer-test-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let indexer = Indexer::new(dir.clone(), Vec::new());
+
+        // Empty .rs file -> None (analyze_file skips empty files).
+        let empty = dir.join("empty.rs");
+        std::fs::write(&empty, b"").unwrap();
+        assert!(indexer.index_file(&empty).unwrap().is_none());
+
+        // `.txt` is unsupported -> None (short-circuits; path need not exist).
+        let txt = dir.join("notes.txt");
+        assert!(indexer.index_file(&txt).unwrap().is_none());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

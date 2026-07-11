@@ -36,12 +36,26 @@ impl EventBus {
             kind,
             path,
         };
+        self.emit_event(event).await;
+    }
+
+    /// Emit a pre-built event: broadcast it and record it in history.
+    pub async fn emit_event(&self, event: Event) {
         let _ = self.tx.send(event.clone());
         let mut history = self.history.write().await;
         history.push(event);
         if history.len() > 1000 {
             history.remove(0);
         }
+    }
+
+    /// Seed history from the journal on startup. Does NOT broadcast — restored
+    /// events must not fan out to live subscribers — and caps at 1000 entries.
+    pub async fn restore(&self, events: Vec<Event>) {
+        let mut history = self.history.write().await;
+        history.clear();
+        let start = events.len().saturating_sub(1000);
+        history.extend(events.into_iter().skip(start));
     }
 
     pub async fn recent(&self, n: usize) -> Vec<Event> {

@@ -11,6 +11,10 @@ required = [
     "toml",
     "tracing",
     "tracing-subscriber",
+    # Tree-neutral streaming primitive (already transitive via axum/tower);
+    # load-bearing for the SSE live tail. Amber's AST scan misses the
+    # `impl Stream` + `unfold` usage, so it is pinned here explicitly.
+    "futures-util",
 ]
 # Crates that were replaced by internal modules and must not be reintroduced.
 forbidden = [

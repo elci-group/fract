@@ -50,10 +50,13 @@
     .bar { height: 1rem; border-radius: 0.5rem; background: rgba(255,255,255,0.1); overflow: hidden; }
     .bar > div { height: 100%; border-radius: 0.5rem; transition: width 0.5s ease; }
     .module-list { list-style: none; padding: 0; margin: 0; }
-    .module-list li { display: flex; justify-content: space-between; padding: 0.6rem 0; border-bottom: 1px solid var(--panel-border); }
+    .module-list li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.6rem 0; border-bottom: 1px solid var(--panel-border); }
     .module-list li:last-child { border-bottom: none; }
-    .badge { font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: 999px; text-transform: uppercase; }
-    .badge.excellent { background: rgba(105, 240, 174, 0.15); color: var(--good); }
+    .module-list li.over { border-left: 3px solid var(--warn); padding-left: 0.5rem; background: rgba(255, 213, 79, 0.06); }
+    .module-list li.over .badge { font-weight: 700; }
+    .module-list .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .badge { font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: 999px; text-transform: uppercase; white-space: nowrap; }
+    .badge.excellent, .badge.info { background: rgba(105, 240, 174, 0.15); color: var(--good); }
     .badge.healthy { background: rgba(100, 255, 218, 0.12); color: var(--accent); }
     .badge.warning { background: rgba(255, 213, 79, 0.15); color: var(--warn); }
     .badge.critical { background: rgba(255, 82, 82, 0.15); color: var(--crit); }
@@ -66,8 +69,15 @@
     .timeline .event { position: relative; margin-bottom: 1rem; font-size: 0.9rem; }
     .timeline .event::before { content: ""; position: absolute; left: -1rem; top: 0.4rem; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--accent); }
     .timeline time { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.15rem; }
+    .live { font-size: 0.7rem; color: var(--good); letter-spacing: 0.1em; text-transform: uppercase; }
+    .live::before { content: "●"; margin-right: 0.3rem; animation: pulse 1.6s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
     pre { background: rgba(0,0,0,0.3); padding: 1rem; border-radius: 0.75rem; overflow-x: auto; font-size: 0.8rem; }
     footer { padding: 2rem; color: var(--muted); font-size: 0.8rem; text-align: center; }
+    .pager { display: flex; align-items: center; justify-content: space-between; margin-top: 1rem; font-size: 0.8rem; color: var(--muted); }
+    .pager button { background: var(--panel); color: var(--text); border: 1px solid var(--panel-border); border-radius: 0.6rem; padding: 0.3rem 0.8rem; cursor: pointer; font: inherit; }
+    .pager button:disabled { opacity: 0.4; cursor: default; }
+    .pager button:not(:disabled):hover { border-color: var(--accent); }
   </style>
 </head>
 <body>
@@ -84,6 +94,11 @@
     <section class="panel">
       <h2>Modules</h2>
       <ul class="module-list" id="modules"></ul>
+      <div class="pager">
+        <button id="mod-prev" disabled>‹ Prev</button>
+        <span id="mod-range">—</span>
+        <button id="mod-next" disabled>Next ›</button>
+      </div>
     </section>
     <section class="panel">
       <h2>Refactors Today</h2>
@@ -95,12 +110,17 @@
       </div>
     </section>
     <section class="panel">
-      <h2>Latest Events</h2>
+      <h2>Latest Events <span class="live" id="live" hidden>live</span></h2>
       <div class="timeline" id="timeline"></div>
     </section>
     <section class="panel">
       <h2>Proposals</h2>
       <ul class="module-list" id="proposals"></ul>
+      <div class="pager">
+        <button id="prop-prev" disabled>‹ Prev</button>
+        <span id="prop-range">—</span>
+        <button id="prop-next" disabled>Next ›</button>
+      </div>
     </section>
     <section class="panel">
       <h2>Configuration</h2>
@@ -111,50 +131,126 @@
     Fract preserves architecture. Copilot writes code. Silverline fixes errors. Kaptaind manages releases.
   </footer>
   <script>
-    async function load() {
-      try {
-        const [health, modules, proposals, events, config] = await Promise.all([
-          fetch('/api/health').then(r => r.json()),
-          fetch('/api/modules').then(r => r.json()),
-          fetch('/api/proposals').then(r => r.json()),
-          fetch('/api/events').then(r => r.json()),
-          fetch('/api/config').then(r => r.json()),
-        ]);
+    const modPage = { offset: 0, limit: 12, total: 0 };
+    const propPage = { offset: 0, limit: 8, total: 0 };
+    const eventBuf = [];
+    const EVENT_CAP = 50;
+    // Mirrors config.entropy_threshold (default 0.82); updated by loadConfig().
+    let entropyThreshold = 0.82;
 
-        document.getElementById('health-score').textContent = health.score.toFixed(1) + '%';
-        const bar = document.getElementById('health-bar');
-        bar.style.width = health.score + '%';
-        bar.style.background = health.score > 80 ? 'var(--good)' : health.score > 50 ? 'var(--warn)' : 'var(--crit)';
-        document.getElementById('health-summary').textContent =
-          `${health.total_modules} modules · ${health.healthy} healthy · ${health.warning} warning · ${health.critical} critical`;
-
-        const modList = document.getElementById('modules');
-        modList.innerHTML = modules.modules.slice(0, 12).map(m =>
-          `<li><span>${m.path}</span><span class="badge ${m.health.toLowerCase()}">${m.health}</span></li>`
-        ).join('');
-
-        document.getElementById('completed').textContent = health.refactors_today.completed;
-        document.getElementById('pending').textContent = health.refactors_today.pending;
-        document.getElementById('failed').textContent = health.refactors_today.failed;
-        document.getElementById('loc-removed').textContent = health.refactors_today.loc_removed;
-
-        const timeline = document.getElementById('timeline');
-        timeline.innerHTML = events.events.slice(0, 6).map(e =>
-          `<div class="event"><time>${new Date(e.at).toLocaleTimeString()}</time>${e.type} ${e.path ? e.path.split('/').pop() : ''}</div>`
-        ).join('');
-
-        const propList = document.getElementById('proposals');
-        propList.innerHTML = proposals.proposals.slice(0, 8).map(p =>
-          `<li><span>${p.module}</span><span class="badge ${p.status.toLowerCase()}">${p.status}</span></li>`
-        ).join('');
-
-        document.getElementById('config').textContent = JSON.stringify(config, null, 2);
-      } catch (err) {
-        console.error(err);
-      }
+    async function getJSON(url) {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(url + ' → ' + r.status);
+      return r.json();
     }
-    load();
-    setInterval(load, 5000);
+
+    async function loadHealth() {
+      const data = await getJSON('/api/health');
+      const h = data.health || data; // tolerate either envelope
+      document.getElementById('health-score').textContent = h.score.toFixed(1) + '%';
+      const bar = document.getElementById('health-bar');
+      bar.style.width = h.score + '%';
+      bar.style.background = h.score > 80 ? 'var(--good)' : h.score > 50 ? 'var(--warn)' : 'var(--crit)';
+      document.getElementById('health-summary').textContent =
+        `${h.total_modules} modules · ${h.healthy} healthy · ${h.warning} warning · ${h.critical} critical`;
+      document.getElementById('completed').textContent = h.refactors_today.completed;
+      document.getElementById('pending').textContent = h.refactors_today.pending;
+      document.getElementById('failed').textContent = h.refactors_today.failed;
+      document.getElementById('loc-removed').textContent = h.refactors_today.loc_removed;
+    }
+
+    function badgeClass(s) { return String(s || '').toLowerCase(); }
+
+    async function loadModules() {
+      const data = await getJSON(`/api/modules?limit=${modPage.limit}&offset=${modPage.offset}`);
+      modPage.total = data.total ?? data.modules.length;
+      document.getElementById('modules').innerHTML = data.modules.map(m => {
+        const over = m.entropy >= entropyThreshold;
+        return `<li class="${over ? 'over' : ''}" title="entropy ${m.entropy}${over ? ' · over threshold' : ''}"><span class="path" title="${m.path}">${m.path}</span><span class="badge ${badgeClass(m.health)}">${m.health}</span></li>`;
+      }).join('') || '<li><span class="path">No modules</span></li>';
+      renderPager('mod', modPage);
+    }
+
+    async function loadProposals() {
+      const data = await getJSON(`/api/proposals?limit=${propPage.limit}&offset=${propPage.offset}`);
+      propPage.total = data.total ?? data.proposals.length;
+      document.getElementById('proposals').innerHTML = data.proposals.map(p =>
+        `<li><span class="path" title="${p.module}">${p.module}</span><span class="badge ${badgeClass(p.status)}">${p.status}</span></li>`
+      ).join('') || '<li><span class="path">No proposals</span></li>';
+      renderPager('prop', propPage);
+    }
+
+    function renderPager(prefix, page) {
+      const start = page.total === 0 ? 0 : page.offset + 1;
+      const end = Math.min(page.offset + page.limit, page.total);
+      document.getElementById(`${prefix}-range`).textContent = `${start}–${end} of ${page.total}`;
+      document.getElementById(`${prefix}-prev`).disabled = page.offset === 0;
+      document.getElementById(`${prefix}-next`).disabled = page.offset + page.limit >= page.total;
+    }
+
+    async function loadConfig() {
+      const data = await getJSON('/api/config');
+      const cfg = data.config ?? data;
+      entropyThreshold = (cfg && cfg.entropy_threshold) ?? 0.82;
+      document.getElementById('config').textContent = JSON.stringify(cfg, null, 2);
+    }
+
+    function renderTimeline() {
+      document.getElementById('timeline').innerHTML = eventBuf.map(e => {
+        const type = (e.kind && e.kind.type) || e.type || 'event';
+        const file = e.path ? e.path.split('/').pop() : '';
+        const time = e.at ? new Date(e.at).toLocaleTimeString() : '';
+        return `<div class="event"><time>${time}</time>${type}${file ? ' · ' + file : ''}</div>`;
+      }).join('') || '<div class="event"><time>—</time>waiting for events…</div>';
+    }
+
+    function pushEvent(e) {
+      eventBuf.unshift(e);
+      if (eventBuf.length > EVENT_CAP) eventBuf.length = EVENT_CAP;
+      renderTimeline();
+    }
+
+    function startEventStream() {
+      if (!('EventSource' in window)) return startEventPoll();
+      const es = new EventSource('/api/events/stream');
+      es.addEventListener('open', () => { document.getElementById('live').hidden = false; });
+      es.addEventListener('event', (msg) => {
+        try { pushEvent(JSON.parse(msg.data)); } catch (_) {}
+      });
+      es.addEventListener('lag', () => { /* receiver fell behind; timeline stays best-effort */ });
+      es.addEventListener('error', () => {
+        document.getElementById('live').hidden = true;
+        es.close();
+        startEventPoll();
+      });
+    }
+
+    async function startEventPoll() {
+      try {
+        const data = await getJSON('/api/events?limit=20');
+        // newest-first from API; seed buffer once, then poll for new
+        const items = (data.events || []).slice().reverse();
+        for (const e of items) {
+          if (!eventBuf.find(x => x.at === e.at && x.path === e.path)) pushEvent(e);
+        }
+      } catch (_) {}
+      setTimeout(startEventPoll, 5000);
+    }
+
+    async function refresh() {
+      try { await Promise.all([loadHealth(), loadModules(), loadProposals(), loadConfig()]); }
+      catch (err) { console.error(err); }
+    }
+
+    document.getElementById('mod-prev').addEventListener('click', () => { modPage.offset = Math.max(0, modPage.offset - modPage.limit); loadModules(); });
+    document.getElementById('mod-next').addEventListener('click', () => { if (modPage.offset + modPage.limit < modPage.total) { modPage.offset += modPage.limit; loadModules(); } });
+    document.getElementById('prop-prev').addEventListener('click', () => { propPage.offset = Math.max(0, propPage.offset - propPage.limit); loadProposals(); });
+    document.getElementById('prop-next').addEventListener('click', () => { if (propPage.offset + propPage.limit < propPage.total) { propPage.offset += propPage.limit; loadProposals(); } });
+
+    refresh();
+    setInterval(refresh, 5000);
+    renderTimeline();
+    startEventStream();
   </script>
 </body>
 </html>

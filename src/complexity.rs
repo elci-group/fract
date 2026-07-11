@@ -91,7 +91,7 @@ mod tests {
             fan_in: 0,
             duplicates: 0,
             edit_frequency: 0.0,
-            confidence: 0.0,
+            confidence: None,
             churn: 0,
             test_coverage: 0.0,
             entropy: 0.0,

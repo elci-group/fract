@@ -35,6 +35,10 @@ pub struct Config {
     #[serde(default = "default_bind")]
     pub bind: String,
 
+    /// Output / observability knobs.
+    #[serde(default)]
+    pub output: OutputConfig,
+
     /// LLM refactor engine configuration.
     #[serde(default)]
     pub llm: LlmConfig,
@@ -47,6 +51,50 @@ pub enum Mode {
     Passive,
     Assisted,
     Autonomous,
+}
+
+impl std::fmt::Display for Mode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Mode::Passive => "passive",
+            Mode::Assisted => "assisted",
+            Mode::Autonomous => "autonomous",
+        };
+        f.write_str(s)
+    }
+}
+
+/// Output and observability configuration. CLI flags override these.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OutputConfig {
+    /// Default render format: human | json | jsonl | sarif | markdown.
+    #[serde(default = "default_output_format")]
+    pub format: String,
+    /// Colour mode: auto | always | never.
+    #[serde(default = "default_output_color")]
+    pub color: String,
+    /// Verbosity: quiet | normal | verbose | debug.
+    #[serde(default = "default_output_verbosity")]
+    pub verbosity: String,
+    /// Daemon log format: pretty | compact.
+    #[serde(default = "default_log_format")]
+    pub log_format: String,
+    /// Noise budget: maximum actionable findings to surface (0 = unlimited).
+    #[serde(default)]
+    pub max_findings: usize,
+}
+
+impl Default for OutputConfig {
+    fn default() -> Self {
+        Self {
+            format: default_output_format(),
+            color: default_output_color(),
+            verbosity: default_output_verbosity(),
+            log_format: default_log_format(),
+            max_findings: 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -84,6 +132,7 @@ impl Config {
             watch_patterns: default_watch_patterns(),
             ignore_patterns: default_ignore_patterns(),
             bind: default_bind(),
+            output: OutputConfig::default(),
             llm: LlmConfig::default(),
         }
     }
@@ -100,6 +149,18 @@ fn default_quiet_period_secs() -> u64 {
 }
 fn default_bind() -> String {
     "127.0.0.1:7345".to_string()
+}
+fn default_output_format() -> String {
+    "human".to_string()
+}
+fn default_output_color() -> String {
+    "auto".to_string()
+}
+fn default_output_verbosity() -> String {
+    "normal".to_string()
+}
+fn default_log_format() -> String {
+    "pretty".to_string()
 }
 fn default_llm_provider() -> String {
     "mock".to_string()
@@ -124,6 +185,7 @@ pub fn default_ignore_patterns() -> Vec<String> {
     vec![
         "target/**".to_string(),
         ".git/**".to_string(),
+        ".fract/**".to_string(),
         "node_modules/**".to_string(),
         ".venv/**".to_string(),
         "dist/**".to_string(),

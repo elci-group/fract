@@ -132,6 +132,7 @@ pub async fn execute_proposal(
     engine: &dyn RefactorEngine,
     root: &Path,
     proposal: &mut Proposal,
+    module: &Module,
 ) -> Result<RefactorOutput> {
     proposal.status = ProposalStatus::Refactoring;
     proposal.timeline.push(TimelineEvent {
@@ -139,8 +140,7 @@ pub async fn execute_proposal(
         message: "Building semantic context package".to_string(),
     });
 
-    let module = find_module(root, &proposal.module).await?;
-    let ctx = build_context(root, &module)?;
+    let ctx = build_context(root, module)?;
 
     proposal.timeline.push(TimelineEvent {
         at: now(),
@@ -161,16 +161,14 @@ pub async fn execute_proposal(
 
     proposal.diff_summary = output.diff_summary.clone();
     proposal.migration_notes = output.migration_notes.clone();
+    proposal.changed_files = output
+        .files
+        .iter()
+        .map(|(path, content)| crate::ChangedFile {
+            path: path.clone(),
+            content: content.clone(),
+        })
+        .collect();
 
     Ok(output)
-}
-
-async fn find_module(root: &Path, relative: &Path) -> Result<Module> {
-    let indexer =
-        crate::indexer::Indexer::new(root.to_path_buf(), crate::config::default_ignore_patterns());
-    let modules = indexer.index()?;
-    modules
-        .into_iter()
-        .find(|m| m.path == relative)
-        .context("module not found in index")
 }

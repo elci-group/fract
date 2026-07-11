@@ -55,6 +55,13 @@ impl RefactorQueue {
         self.inner.read().await.proposals.clone()
     }
 
+    /// Replace the proposal list with state restored from the journal. No
+    /// timeline injection — restored proposals already carry a "Restored" event.
+    pub async fn restore(&self, proposals: Vec<Proposal>) {
+        let mut inner = self.inner.write().await;
+        inner.proposals = proposals;
+    }
+
     pub async fn proposal(&self, id: &str) -> Option<Proposal> {
         self.inner
             .read()
@@ -99,6 +106,8 @@ pub fn proposal_for(module: &Module, kind: RefactorKind) -> Proposal {
         validation: None,
         diff_summary: Default::default(),
         migration_notes: Vec::new(),
+        changed_files: Vec::new(),
+        pr_body: None,
         timeline: vec![TimelineEvent {
             at: now(),
             message: format!(
