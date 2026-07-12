@@ -3,14 +3,15 @@ use crate::Module;
 /// Compute structural entropy for a module.
 ///
 /// Entropy =
-///   0.3 * module_size_score
-/// + 0.2 * cyclomatic_score
-/// + 0.2 * cohesion_loss_score
-/// + 0.1 * dependency_density_score
-/// + 0.1 * public_surface_score
-/// + 0.1 * duplication_score
+///   0.3 * `module_size_score`
+/// + 0.2 * `cyclomatic_score`
+/// + 0.2 * `cohesion_loss_score`
+/// + 0.1 * `dependency_density_score`
+/// + 0.1 * `public_surface_score`
+/// + 0.1 * `duplication_score`
 ///
 /// Each sub-score is normalised to [0, 1] with soft clamping.
+#[must_use]
 pub fn entropy(module: &Module) -> f64 {
     let module_size = score_module_size(module.lines);
     let cyclomatic = score_cyclomatic(module.cyclomatic_complexity);

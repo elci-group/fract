@@ -6,6 +6,10 @@ use super::value::Value;
 /// [`Value::to_string`] for the subset of JSON that this crate emits, and is
 /// strict enough for tests and config-free round-tripping (numbers are parsed
 /// as `f64`; `NaN`/`Infinity` are rejected).
+///
+/// # Errors
+/// Returns an error describing the byte offset at which the input is not
+/// valid JSON (unexpected token, truncated escape, trailing data, etc.).
 pub fn parse(s: &str) -> Result<Value, String> {
     let mut p = Parser::new(s);
     p.skip_ws();
@@ -228,9 +232,9 @@ impl<'a> Parser<'a> {
                 .next_byte()
                 .ok_or_else(|| "truncated \\u escape".to_string())?;
             let d = match b {
-                b'0'..=b'9' => (b - b'0') as u32,
-                b'a'..=b'f' => (b - b'a' + 10) as u32,
-                b'A'..=b'F' => (b - b'A' + 10) as u32,
+                b'0'..=b'9' => u32::from(b - b'0'),
+                b'a'..=b'f' => u32::from(b - b'a' + 10),
+                b'A'..=b'F' => u32::from(b - b'A' + 10),
                 _ => {
                     return Err(format!(
                         "invalid hex digit '{}' at byte {}",

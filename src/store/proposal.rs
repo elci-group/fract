@@ -133,6 +133,9 @@ mod tests {
     }
 
     #[test]
+    // Round-trip must be bit-exact: confidence is written/read through the
+    // in-tree JSON codec, so an epsilon comparison would weaken the test.
+    #[allow(clippy::float_cmp)]
     fn roundtrip_proposal_projection() {
         let dir = temp_dir();
         let store = Store::open(&dir);

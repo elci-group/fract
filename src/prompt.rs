@@ -34,6 +34,7 @@ pub struct PlannedFile {
 
 /// Render the deterministic prompt for a refactor. Output is byte-stable for a
 /// given context, which makes it golden-testable and cache-friendly.
+#[must_use]
 pub fn render_prompt(ctx: &RefactorContext) -> String {
     use std::fmt::Write;
     let m = &ctx.module;
@@ -103,9 +104,16 @@ fn write_list(out: &mut String, title: &str, items: &[String]) {
 }
 
 /// Parse and strictly validate a model response into a [`RefactorPlan`].
-/// Accepts a bare JSON object or one wrapped in a ```json code fence (optionally
-/// surrounded by prose), then enforces the schema and the grounding rule that
-/// every planned path is relative and stays within the project.
+/// Accepts a bare JSON object or one wrapped in a triple-backtick `json` code
+/// fence (optionally surrounded by prose), then enforces the schema and the
+/// grounding rule that every planned path is relative and stays within the
+/// project.
+///
+/// # Errors
+/// Returns an error if the response is not valid JSON, is not an object, is
+/// missing a non-empty `rationale` or a non-empty `files` array, any file
+/// entry is malformed, a path fails the grounding check, or
+/// `migration_notes` is present but not an array of strings.
 pub fn parse_plan(input: &str) -> Result<RefactorPlan> {
     let text = extract_json(input);
     let value = json::parse(text).map_err(|e| format!("refactor plan is not valid JSON: {e}"))?;
@@ -155,6 +163,7 @@ pub fn parse_plan(input: &str) -> Result<RefactorPlan> {
 
 /// Convert a validated plan into a [`RefactorOutput`], computing a deterministic
 /// [`DiffSummary`] by comparing the planned primary file against the original.
+#[must_use]
 pub fn plan_into_output(ctx: &RefactorContext, plan: RefactorPlan) -> RefactorOutput {
     let old_lines = ctx.source.lines().count();
     let mut files: Vec<(PathBuf, String)> = Vec::with_capacity(plan.files.len());
@@ -201,8 +210,8 @@ fn check_grounded(path: &str, i: usize) -> Result<PathBuf> {
     Ok(p.to_path_buf())
 }
 
-/// Pull the JSON object out of a model reply: prefer a ``` fenced block, else
-/// fall back to the substring spanning the first `{` .. last `}`.
+/// Pull the JSON object out of a model reply: prefer a triple-backtick fenced
+/// block, else fall back to the substring spanning the first `{` .. last `}`.
 fn extract_json(input: &str) -> &str {
     if let Some(start) = input.find("```") {
         let after = &input[start + 3..];

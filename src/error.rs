@@ -112,9 +112,17 @@ impl From<crate::cli::Error> for Error {
 /// Mirrors `anyhow::Context` for `fract::Result`.
 pub trait Context<T> {
     /// Wrap a potential error with a static message.
+    ///
+    /// # Errors
+    /// Returns an error carrying `msg` (with the original error as source)
+    /// when `self` is `Err` or `None`.
     fn context<M: Into<String>>(self, msg: M) -> Result<T>;
 
     /// Lazily construct the context message only on error.
+    ///
+    /// # Errors
+    /// Returns an error carrying `f()` (with the original error as source)
+    /// when `self` is `Err` or `None`.
     fn with_context<F: FnOnce() -> String>(self, f: F) -> Result<T>;
 }
 

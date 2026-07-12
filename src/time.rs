@@ -8,17 +8,28 @@ use std::time::{Duration, SystemTime};
 pub type Timestamp = SystemTime;
 
 /// Current wall-clock time as a `Timestamp`.
+#[must_use]
 pub fn now() -> Timestamp {
     SystemTime::now()
 }
 
 /// Format a timestamp as an RFC 3339 UTC string (`YYYY-MM-DDTHH:MM:SS.sssZ`).
+#[must_use]
 pub fn to_rfc3339(t: Timestamp) -> String {
     let duration = t.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default();
     format_rfc3339(duration.as_secs(), duration.subsec_nanos())
 }
 
 /// Parse an RFC 3339 UTC timestamp produced by [`to_rfc3339`].
+///
+/// # Errors
+/// Returns an error if the string lacks the `Z` suffix or `T` separator, any
+/// component is non-numeric, or any component is out of its valid range
+/// (including day-of-month for the given month/year).
+///
+/// # Panics
+/// Panics only on an internal invariant violation (the day count for a
+/// validated year >= 1970 is always non-negative).
 pub fn parse_rfc3339(s: &str) -> Result<Timestamp, String> {
     let s = s.strip_suffix('Z').ok_or("expected Z suffix")?;
     let (date, time) = s.split_once('T').ok_or("expected T separator")?;
@@ -54,7 +65,7 @@ pub fn parse_rfc3339(s: &str) -> Result<Timestamp, String> {
     }
 
     let (time, frac) = if let Some((t, f)) = time.split_once('.') {
-        let frac = format!("{:0<9}", f);
+        let frac = format!("{f:0<9}");
         let frac: u32 = frac.parse().map_err(|e| format!("invalid fraction: {e}"))?;
         (t, frac)
     } else {
@@ -89,7 +100,11 @@ pub fn parse_rfc3339(s: &str) -> Result<Timestamp, String> {
     }
 
     let days = ymd_to_days(year, month, day);
-    let secs = days as u64 * 86_400 + hour * 3_600 + minute * 60 + second;
+    // `year` is validated to 1970..=9999 above, so `days` is non-negative.
+    let secs = u64::try_from(days).expect("day count is non-negative for year >= 1970") * 86_400
+        + hour * 3_600
+        + minute * 60
+        + second;
     Ok(SystemTime::UNIX_EPOCH + Duration::new(secs, frac))
 }
 
@@ -97,6 +112,10 @@ pub fn parse_rfc3339(s: &str) -> Result<Timestamp, String> {
 pub mod serde {
     use super::Timestamp;
 
+    /// Serialize as an RFC 3339 string.
+    ///
+    /// # Errors
+    /// Returns an error if the underlying serializer fails.
     pub fn serialize<S>(t: &Timestamp, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: ::serde::ser::Serializer,
@@ -104,6 +123,11 @@ pub mod serde {
         ::serde::ser::Serialize::serialize(&super::to_rfc3339(*t), serializer)
     }
 
+    /// Deserialize from an RFC 3339 string.
+    ///
+    /// # Errors
+    /// Returns an error if the input is not a string or is not a valid
+    /// RFC 3339 timestamp as accepted by [`super::parse_rfc3339`].
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Timestamp, D::Error>
     where
         D: ::serde::de::Deserializer<'de>,
@@ -117,6 +141,10 @@ pub mod serde {
 pub mod serde_trend {
     use super::Timestamp;
 
+    /// Serialize the trend as RFC 3339 string/value pairs.
+    ///
+    /// # Errors
+    /// Returns an error if the underlying serializer fails.
     pub fn serialize<S>(v: &[(Timestamp, f64)], serializer: S) -> Result<S::Ok, S::Error>
     where
         S: ::serde::ser::Serializer,
@@ -128,6 +156,11 @@ pub mod serde_trend {
         ::serde::ser::Serialize::serialize(&flat, serializer)
     }
 
+    /// Deserialize the trend from RFC 3339 string/value pairs.
+    ///
+    /// # Errors
+    /// Returns an error if the input is not a list of string/number pairs or
+    /// any timestamp fails to parse.
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<(Timestamp, f64)>, D::Error>
     where
         D: ::serde::de::Deserializer<'de>,
@@ -169,18 +202,20 @@ pub(crate) fn ymd_to_days(year: i64, month: u8, day: u8) -> i64 {
         days += if is_leap_year(y) { 366 } else { 365 };
     }
     for m in 1..month {
-        days += days_in_month(year, m) as i64;
+        days += i64::from(days_in_month(year, m));
     }
-    days += (day as i64) - 1;
+    days += i64::from(day) - 1;
     days
 }
 
 fn format_rfc3339(secs: u64, nanos: u32) -> String {
-    let mut days = (secs / 86_400) as i64;
+    // Timestamps this formatter receives are at most thousands of years past
+    // the epoch, so every conversion below is far inside the target range.
+    let mut days = i64::try_from(secs / 86_400).expect("day count fits in i64");
     let rem = secs % 86_400;
-    let hour = (rem / 3_600) as u8;
-    let minute = ((rem % 3_600) / 60) as u8;
-    let second = (rem % 60) as u8;
+    let hour = u8::try_from(rem / 3_600).expect("hour is 0..=23");
+    let minute = u8::try_from((rem % 3_600) / 60).expect("minute is 0..=59");
+    let second = u8::try_from(rem % 60).expect("second is 0..=59");
 
     let mut year = 1970i64;
     loop {
@@ -194,27 +229,21 @@ fn format_rfc3339(secs: u64, nanos: u32) -> String {
 
     let mut month = 1u8;
     loop {
-        let dim = days_in_month(year, month) as i64;
+        let dim = i64::from(days_in_month(year, month));
         if days < dim {
             break;
         }
         days -= dim;
         month += 1;
     }
-    let day = (days + 1) as u8;
+    let day = u8::try_from(days + 1).expect("day of month is 1..=31");
 
     if nanos == 0 {
-        format!(
-            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-            year, month, day, hour, minute, second
-        )
+        format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
     } else {
-        let frac = format!("{:09}", nanos);
+        let frac = format!("{nanos:09}");
         let frac = frac.trim_end_matches('0');
-        format!(
-            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{}Z",
-            year, month, day, hour, minute, second, frac
-        )
+        format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{frac}Z")
     }
 }
 
@@ -267,7 +296,9 @@ mod tests {
     fn parse_with_milliseconds() {
         let t = parse_rfc3339("2024-01-15T08:30:00.123Z").unwrap();
         let expected = SystemTime::UNIX_EPOCH
-            + Duration::from_secs(ymd_to_days(2024, 1, 15) as u64 * 86_400 + 8 * 3_600 + 30 * 60)
+            + Duration::from_secs(
+                u64::try_from(ymd_to_days(2024, 1, 15)).unwrap() * 86_400 + 8 * 3_600 + 30 * 60,
+            )
             + Duration::from_millis(123);
         assert_eq!(t, expected);
     }
@@ -293,7 +324,7 @@ mod tests {
         let encoded = toml::to_string(&original).unwrap();
         let parsed: Event = toml::from_str(&encoded).unwrap();
         assert_eq!(original.at, parsed.at);
-        assert!(encoded.contains("T") && encoded.contains("Z"));
+        assert!(encoded.contains('T') && encoded.contains('Z'));
     }
 
     #[test]
@@ -321,8 +352,7 @@ mod tests {
         assert_eq!(original.entropy_trend, parsed.entropy_trend);
         assert!(
             encoded.contains("2023-11-14T22:13:20Z"),
-            "unexpected encoded: {}",
-            encoded
+            "unexpected encoded: {encoded}"
         );
     }
 

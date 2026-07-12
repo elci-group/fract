@@ -64,7 +64,7 @@ fn http_get(addr: std::net::SocketAddr, path: &str) -> (u16, String) {
     (code, body.to_string())
 }
 
-fn read_first_sse_data(addr: std::net::SocketAddr, ready: std::sync::mpsc::Sender<()>) -> String {
+fn read_first_sse_data(addr: std::net::SocketAddr, ready: &std::sync::mpsc::Sender<()>) -> String {
     use std::io::{Read, Write};
     let mut s =
         std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(5)).unwrap();
@@ -83,9 +83,10 @@ fn read_first_sse_data(addr: std::net::SocketAddr, ready: std::sync::mpsc::Sende
     let mut signalled = false;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
     loop {
-        if std::time::Instant::now() > deadline {
-            panic!("timed out waiting for SSE data frame");
-        }
+        assert!(
+            std::time::Instant::now() <= deadline,
+            "timed out waiting for SSE data frame"
+        );
         match s.read(&mut tmp) {
             Ok(0) => panic!("SSE stream closed before any data frame"),
             Ok(n) => {
@@ -107,10 +108,7 @@ fn read_first_sse_data(addr: std::net::SocketAddr, ready: std::sync::mpsc::Sende
             }
             Err(ref e)
                 if e.kind() == std::io::ErrorKind::WouldBlock
-                    || e.kind() == std::io::ErrorKind::TimedOut =>
-            {
-                continue;
-            }
+                    || e.kind() == std::io::ErrorKind::TimedOut => {}
             Err(e) => panic!("SSE read error: {e}"),
         }
     }
@@ -139,7 +137,7 @@ fn temp_git_repo() -> std::path::PathBuf {
             .env("GIT_COMMITTER_EMAIL", "t@t")
             .status()
             .unwrap();
-        assert!(st.success(), "git {:?} failed", args);
+        assert!(st.success(), "git {args:?} failed");
     };
     git(&["init", "-q"]);
     git(&["add", "."]);
@@ -192,7 +190,7 @@ async fn live_daemon_serves_rest_and_one_sse_event() {
     // they run on the blocking pool — keeping the async worker free to poll the
     // spawned axum server (which would otherwise be starved on the test runtime).
     let (ready_tx, ready_rx) = std::sync::mpsc::channel();
-    let sse = std::thread::spawn(move || read_first_sse_data(addr, ready_tx));
+    let sse = std::thread::spawn(move || read_first_sse_data(addr, &ready_tx));
     let subscribed = tokio::task::spawn_blocking(move || {
         ready_rx.recv_timeout(std::time::Duration::from_secs(5))
     })

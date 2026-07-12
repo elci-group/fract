@@ -21,6 +21,8 @@ pub enum Severity {
 }
 
 impl Severity {
+    /// Lowercase label used in human and JSON output.
+    #[must_use]
     pub fn label(self) -> &'static str {
         match self {
             Severity::Info => "info",
@@ -63,6 +65,8 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Derive a finding from a module's metrics and the configured threshold.
+    #[must_use]
     pub fn from_module(m: &Module, threshold: f64) -> Self {
         // Severity tracks actionability against the *configured* threshold so the
         // message, reason, and severity always agree. The hard `Health` band can
@@ -137,6 +141,8 @@ pub struct Summary {
 }
 
 impl Summary {
+    /// Aggregate health counts and score over a module set.
+    #[must_use]
     pub fn from_modules(modules: &[Module]) -> Self {
         let total = modules.len();
         let mut excellent = 0;
@@ -179,6 +185,7 @@ pub struct Report {
 impl Report {
     /// Build a report from an index, ordered by descending entropy (then path).
     /// When `over_only` is set, findings below the threshold are dropped.
+    #[must_use]
     pub fn from_modules(root: &Path, modules: &[Module], threshold: f64, over_only: bool) -> Self {
         let mut sorted = modules.to_vec();
         sorted.sort_by(|a, b| {
@@ -212,6 +219,8 @@ impl Report {
         }
     }
 
+    /// Render the report in the requested output format.
+    #[must_use]
     pub fn render(&self, format: OutputFormat, style: &Style, verbosity: Verbosity) -> String {
         match format {
             OutputFormat::Human => render_human(self, style, verbosity),
@@ -225,6 +234,7 @@ impl Report {
 
 /// Mirror of the daemon's candidate classifier, kept here so renderers are
 /// self-contained and testable without spinning up a daemon.
+#[must_use]
 pub fn suggest_kind(m: &Module) -> RefactorKind {
     if m.lines > 1500 || m.functions > 40 {
         RefactorKind::SplitModule

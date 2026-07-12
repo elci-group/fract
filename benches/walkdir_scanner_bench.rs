@@ -15,13 +15,13 @@ fn main() {
     let count = Walk::new(root.clone(), vec!["target".into()])
         .files()
         .filter(|r| {
-            r.as_ref()
-                .map(|p| p.extension().and_then(|e| e.to_str()) == Some("rs"))
-                .unwrap_or(true)
+            r.as_ref().map_or(true, |p| {
+                p.extension().and_then(|e| e.to_str()) == Some("rs")
+            })
         })
         .count();
     let walk_time = start.elapsed();
-    println!("walk {} rust files in {:?}", count, walk_time);
+    println!("walk {count} rust files in {walk_time:?}");
 
     let rust_sample = sample_rust(10_000);
     let python_sample = sample_python(10_000);
@@ -30,36 +30,33 @@ fn main() {
 
     let start = Instant::now();
     for _ in 0..iterations {
-        RustScanner::count_functions(&rust_sample);
-        RustScanner::count_branches(&rust_sample);
-        RustScanner::count_public_items(&rust_sample);
-        RustScanner::count_imports(&rust_sample);
+        std::hint::black_box(RustScanner::count_functions(&rust_sample));
+        std::hint::black_box(RustScanner::count_branches(&rust_sample));
+        std::hint::black_box(RustScanner::count_public_items(&rust_sample));
+        std::hint::black_box(RustScanner::count_imports(&rust_sample));
     }
     let rust_time = start.elapsed();
-    println!("rust scanner {:?} for {iterations} iterations", rust_time);
+    println!("rust scanner {rust_time:?} for {iterations} iterations");
 
     let start = Instant::now();
     for _ in 0..iterations {
-        PythonScanner::count_functions(&python_sample);
-        PythonScanner::count_branches(&python_sample);
-        PythonScanner::count_public_items(&python_sample);
-        PythonScanner::count_imports(&python_sample);
+        std::hint::black_box(PythonScanner::count_functions(&python_sample));
+        std::hint::black_box(PythonScanner::count_branches(&python_sample));
+        std::hint::black_box(PythonScanner::count_public_items(&python_sample));
+        std::hint::black_box(PythonScanner::count_imports(&python_sample));
     }
     let python_time = start.elapsed();
-    println!(
-        "python scanner {:?} for {iterations} iterations",
-        python_time
-    );
+    println!("python scanner {python_time:?} for {iterations} iterations");
 
     let start = Instant::now();
     for _ in 0..iterations {
-        JsTsScanner::count_functions(&jsts_sample);
-        JsTsScanner::count_branches(&jsts_sample);
-        JsTsScanner::count_public_items(&jsts_sample);
-        JsTsScanner::count_imports(&jsts_sample);
+        std::hint::black_box(JsTsScanner::count_functions(&jsts_sample));
+        std::hint::black_box(JsTsScanner::count_branches(&jsts_sample));
+        std::hint::black_box(JsTsScanner::count_public_items(&jsts_sample));
+        std::hint::black_box(JsTsScanner::count_imports(&jsts_sample));
     }
     let jsts_time = start.elapsed();
-    println!("js/ts scanner {:?} for {iterations} iterations", jsts_time);
+    println!("js/ts scanner {jsts_time:?} for {iterations} iterations");
 
     let _ = fs::remove_dir_all(&root);
 }

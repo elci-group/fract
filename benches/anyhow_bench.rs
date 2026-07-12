@@ -24,6 +24,6 @@ fn main() {
     }
     let context = start.elapsed();
 
-    println!("error creation : {:?} for {iterations} iterations", create);
-    println!("context wrap   : {:?} for {iterations} iterations", context);
+    println!("error creation : {create:?} for {iterations} iterations");
+    println!("context wrap   : {context:?} for {iterations} iterations");
 }

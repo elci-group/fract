@@ -1,6 +1,6 @@
 //! Markdown (PR / comment friendly) renderer.
 
-use super::model::*;
+use super::model::{Finding, Report, Severity};
 use super::style::fmt_confidence_pct;
 
 // ---------------------------------------------------------------------------

@@ -115,6 +115,11 @@ pub struct LlmConfig {
 }
 
 impl Config {
+    /// Load and parse a configuration file.
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be read, the TOML is invalid, or
+    /// the configured `project_root` cannot be canonicalized.
     pub fn load(path: impl AsRef<std::path::Path>) -> Result<Self> {
         let text = std::fs::read_to_string(path)?;
         let mut cfg: Config = toml::from_str(&text)?;
@@ -122,6 +127,8 @@ impl Config {
         Ok(cfg)
     }
 
+    /// Build the default configuration for a project root.
+    #[must_use]
     pub fn default_for(root: PathBuf) -> Self {
         Self {
             project_root: root,
@@ -181,6 +188,8 @@ fn default_watch_patterns() -> Vec<String> {
     ]
 }
 
+/// The ignore patterns applied by default when none are configured.
+#[must_use]
 pub fn default_ignore_patterns() -> Vec<String> {
     vec![
         "target/**".to_string(),

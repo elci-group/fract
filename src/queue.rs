@@ -1,6 +1,8 @@
 use crate::id;
 use crate::time::now;
-use crate::{Module, Proposal, ProposalId, ProposalStatus, RefactorKind, TimelineEvent};
+use crate::{
+    DiffSummary, Module, Proposal, ProposalId, ProposalStatus, RefactorKind, TimelineEvent,
+};
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -19,6 +21,8 @@ struct QueueInner {
 }
 
 impl RefactorQueue {
+    /// Create an empty queue.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -84,6 +88,7 @@ impl RefactorQueue {
 }
 
 /// Create a stub proposal for a detected candidate.
+#[must_use]
 pub fn proposal_for(module: &Module, kind: RefactorKind) -> Proposal {
     let id = id::next();
     Proposal {
@@ -94,7 +99,7 @@ pub fn proposal_for(module: &Module, kind: RefactorKind) -> Proposal {
         confidence: 0.0,
         status: ProposalStatus::Detected,
         validation: None,
-        diff_summary: Default::default(),
+        diff_summary: DiffSummary::default(),
         migration_notes: Vec::new(),
         changed_files: Vec::new(),
         pr_body: None,

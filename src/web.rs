@@ -17,6 +17,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::info;
 
+/// Serve the dashboard/API over HTTP on `config.bind`.
+///
+/// # Errors
+/// Returns an error if the bind address cannot be bound or the server fails
+/// while serving.
 pub async fn serve(config: &Config, daemon: Arc<Daemon>) -> crate::error::Result<()> {
     let app = router(daemon);
     let listener = tokio::net::TcpListener::bind(&config.bind).await?;
@@ -177,13 +182,11 @@ async fn static_handler(uri: Uri) -> Response<Body> {
     };
 
     // Prevent directory traversal outside static/.
-    let canonical_file = match tokio::fs::canonicalize(&file).await {
-        Ok(c) => c,
-        Err(_) => return not_found(),
+    let Ok(canonical_file) = tokio::fs::canonicalize(&file).await else {
+        return not_found();
     };
-    let canonical_root = match tokio::fs::canonicalize("static").await {
-        Ok(c) => c,
-        Err(_) => return not_found(),
+    let Ok(canonical_root) = tokio::fs::canonicalize("static").await else {
+        return not_found();
     };
     if !canonical_file.starts_with(&canonical_root) {
         return not_found();

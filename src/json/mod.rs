@@ -265,7 +265,7 @@ mod tests {
     #[test]
     fn display_matches_to_string() {
         let v = json!({"a": [1, 2]});
-        assert_eq!(format!("{}", v), v.to_string());
+        assert_eq!(format!("{v}"), v.to_string());
     }
 
     #[test]
@@ -390,7 +390,7 @@ mod tests {
         let len = (lcg_next(state) % 8) as usize;
         let mut s = String::new();
         for _ in 0..len {
-            let idx = (lcg_next(state) % ALPHA.len() as u64) as usize;
+            let idx = usize::try_from(lcg_next(state) % ALPHA.len() as u64).unwrap();
             s.push(ALPHA[idx]);
         }
         s
@@ -398,11 +398,11 @@ mod tests {
 
     fn gen_value(state: &mut u64, depth: usize) -> Value {
         let branches = if depth == 0 { 4 } else { 6 };
-        match (lcg_next(state) % branches) as u8 {
+        match u8::try_from(lcg_next(state) % branches).unwrap() {
             0 => Value::Null,
             1 => Value::Bool(lcg_next(state) & 1 == 1),
             2 => {
-                let n = (lcg_next(state) % 2000) as i64 - 1000;
+                let n = i64::try_from(lcg_next(state) % 2000).unwrap() - 1000;
                 Value::Number(n as f64)
             }
             3 => Value::String(gen_string(state)),

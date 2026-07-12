@@ -1,5 +1,5 @@
 //! Zero-dependency append-only JSONL journal. Persists proposals
-//! (identity + lifecycle, NOT heavy changed_files payloads — those are
+//! (identity + lifecycle, NOT heavy `changed_files` payloads — those are
 //! re-derived on demand), recent events, and the health trend so the
 //! dashboard/queue survive a restart. Encoded with the in-tree `json::Value`;
 //! `serde_json` is amber-forbidden.
@@ -89,44 +89,48 @@ impl Store {
                     continue;
                 }
             };
-            let kind = match value.get("type").and_then(|t| t.as_str()) {
-                Some(t) => t,
-                None => {
-                    warn!(
-                        event = "store.skip",
-                        line = line_no,
-                        "journal line missing type"
-                    );
-                    continue;
-                }
+            let Some(kind) = value.get("type").and_then(Value::as_str) else {
+                warn!(
+                    event = "store.skip",
+                    line = line_no,
+                    "journal line missing type"
+                );
+                continue;
             };
             match kind {
-                "health" => match health::decode_health(&value) {
-                    Some(h) => loaded.health = Some(h),
-                    None => warn!(
-                        event = "store.skip",
-                        line = line_no,
-                        "malformed health record"
-                    ),
-                },
-                "event" => match event::decode_event(&value) {
-                    Some(e) => loaded.events.push(e),
-                    None => warn!(
-                        event = "store.skip",
-                        line = line_no,
-                        "malformed event record"
-                    ),
-                },
-                "proposal" => match proposal::decode_proposal(&value) {
-                    Some(p) => loaded.proposals.push(p),
-                    None => {
+                "health" => {
+                    if let Some(h) = health::decode_health(&value) {
+                        loaded.health = Some(h);
+                    } else {
+                        warn!(
+                            event = "store.skip",
+                            line = line_no,
+                            "malformed health record"
+                        );
+                    }
+                }
+                "event" => {
+                    if let Some(e) = event::decode_event(&value) {
+                        loaded.events.push(e);
+                    } else {
+                        warn!(
+                            event = "store.skip",
+                            line = line_no,
+                            "malformed event record"
+                        );
+                    }
+                }
+                "proposal" => {
+                    if let Some(p) = proposal::decode_proposal(&value) {
+                        loaded.proposals.push(p);
+                    } else {
                         warn!(
                             event = "store.skip",
                             line = line_no,
                             "malformed proposal record"
-                        )
+                        );
                     }
-                },
+                }
                 other => warn!(
                     event = "store.skip",
                     line = line_no,
@@ -138,20 +142,38 @@ impl Store {
         loaded
     }
 
+    /// Append one proposal record to the journal.
+    ///
+    /// # Errors
+    /// Returns an error if the journal file cannot be opened, written, or
+    /// flushed.
     pub fn append_proposal(&self, p: &Proposal) -> Result<()> {
         self.append(&proposal::encode_proposal(p))
     }
 
+    /// Append one event record to the journal.
+    ///
+    /// # Errors
+    /// Returns an error if the journal file cannot be opened, written, or
+    /// flushed.
     pub fn append_event(&self, e: &Event) -> Result<()> {
         self.append(&event::encode_event(e))
     }
 
+    /// Append one health record to the journal.
+    ///
+    /// # Errors
+    /// Returns an error if the journal file cannot be opened, written, or
+    /// flushed.
     pub fn append_health(&self, h: &ProjectHealth) -> Result<()> {
         self.append(&health::encode_health(h))
     }
 
     /// `load` on the blocking pool, for async callers: the journal read is
-    /// synchronous std::fs and must not run on a tokio worker thread.
+    /// synchronous `std::fs` and must not run on a tokio worker thread.
+    ///
+    /// # Panics
+    /// Panics if the blocking task panics.
     pub async fn load_async(&self) -> Loaded {
         let store = self.clone();
         tokio::task::spawn_blocking(move || store.load())
@@ -160,6 +182,13 @@ impl Store {
     }
 
     /// `append_proposal` on the blocking pool, for async callers.
+    ///
+    /// # Errors
+    /// Returns an error if the journal file cannot be opened, written, or
+    /// flushed.
+    ///
+    /// # Panics
+    /// Panics if the blocking task panics.
     pub async fn append_proposal_async(&self, p: &Proposal) -> Result<()> {
         let store = self.clone();
         let p = p.clone();
@@ -169,6 +198,13 @@ impl Store {
     }
 
     /// `append_event` on the blocking pool, for async callers.
+    ///
+    /// # Errors
+    /// Returns an error if the journal file cannot be opened, written, or
+    /// flushed.
+    ///
+    /// # Panics
+    /// Panics if the blocking task panics.
     pub async fn append_event_async(&self, e: &Event) -> Result<()> {
         let store = self.clone();
         let e = e.clone();
@@ -178,6 +214,13 @@ impl Store {
     }
 
     /// `append_health` on the blocking pool, for async callers.
+    ///
+    /// # Errors
+    /// Returns an error if the journal file cannot be opened, written, or
+    /// flushed.
+    ///
+    /// # Panics
+    /// Panics if the blocking task panics.
     pub async fn append_health_async(&self, h: &ProjectHealth) -> Result<()> {
         let store = self.clone();
         let h = h.clone();
@@ -204,7 +247,12 @@ impl Store {
 // ---------------------------------------------------------------------------
 
 pub(crate) fn req_usize(obj: &Value, key: &str) -> Option<usize> {
-    Some(obj.get(key)?.as_f64()? as usize)
+    let n = obj.get(key)?.as_f64()?;
+    // Journal counts are written as integers by the encoder; the `as` cast's
+    // saturating/truncating semantics on corrupt input are acceptable here
+    // because malformed records are validated field-by-field downstream.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    Some(n as usize)
 }
 
 #[cfg(test)]

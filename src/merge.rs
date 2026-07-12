@@ -15,6 +15,8 @@ pub struct MergeSafety {
 }
 
 impl MergeSafety {
+    /// Whether the proposal may be merged now.
+    #[must_use]
     pub fn can_merge(&self) -> bool {
         if self.conflicts {
             return false;
@@ -33,6 +35,7 @@ impl MergeSafety {
 }
 
 /// Branch name for a proposal, e.g. `fract/7`.
+#[must_use]
 pub fn branch_name(id: &str) -> String {
     let slug = id.strip_prefix("fract-").unwrap_or(id);
     format!("fract/{slug}")
@@ -42,6 +45,12 @@ pub fn branch_name(id: &str) -> String {
 /// HEAD using a *safe* checkout that refuses to clobber local edits. Returns
 /// the branch name. Subsequent `apply`/`commit` happen on this branch, never
 /// the caller's original branch.
+///
+/// # Errors
+/// Returns an error if the repository cannot be opened, `HEAD` cannot be
+/// resolved to a commit, the branch cannot be created or looked up, the
+/// branch reference name is invalid, `HEAD` cannot be moved, or the checkout
+/// fails (e.g. a dirty worktree).
 pub fn checkout_branch(root: &Path, id: &str) -> Result<String> {
     let repo = crate::git::open_repo(root)?;
     let name = branch_name(id);
@@ -63,6 +72,11 @@ pub fn checkout_branch(root: &Path, id: &str) -> Result<String> {
 }
 
 /// Assess whether it is safe to merge a proposal.
+///
+/// # Errors
+/// Returns an error if the filesystem metadata lookup task fails to join, if
+/// repository stability cannot be determined, or if the conflict scan hits a
+/// git error.
 pub async fn assess(
     root: &Path,
     proposal: &Proposal,
@@ -73,7 +87,7 @@ pub async fn assess(
         .await?
         .ok();
     let stable = crate::git::stability(root)? == crate::git::Stability::Clean;
-    let conflicts = has_conflicts(root, proposal).await?;
+    let conflicts = has_conflicts(root, proposal)?;
 
     Ok(MergeSafety {
         quiet_period,
@@ -84,6 +98,10 @@ pub async fn assess(
 }
 
 /// Apply the refactored files carried on the proposal to the working tree.
+///
+/// # Errors
+/// Returns an error if the writer task fails to join, or if creating a
+/// parent directory or writing a file fails.
 pub async fn apply(root: &Path, proposal: &mut Proposal) -> Result<()> {
     proposal.timeline.push(TimelineEvent {
         at: now(),
@@ -117,6 +135,11 @@ pub async fn apply(root: &Path, proposal: &mut Proposal) -> Result<()> {
 /// Stage *only* the proposal's changed paths and commit on the current branch
 /// (which `checkout_branch` pointed at a per-proposal branch). Guards against a
 /// missing git signature. Returns the new commit id as a hex string.
+///
+/// # Errors
+/// Returns an error if the repository cannot be opened, no git signature is
+/// configured, staging/writing the index or tree fails, `HEAD` cannot be
+/// resolved, the commit itself fails, or the blocking task fails to join.
 pub async fn commit(root: &Path, proposal: &mut Proposal, message: &str) -> Result<String> {
     let root = root.to_path_buf();
     let message = message.to_string();
@@ -197,6 +220,10 @@ fn commit_sync(root: &Path, proposal: &mut Proposal, message: &str) -> Result<St
 /// Render a unified diff between the last commit and its parent — i.e. the
 /// change the proposal just introduced. Returns an empty string when there is
 /// no parent (initial commit) so rendering never fails the merge.
+///
+/// # Errors
+/// Returns an error if the repository cannot be opened, `HEAD` or its tree
+/// cannot be resolved, or the diff cannot be produced or printed.
 pub fn diff_last_commit(root: &Path) -> Result<String> {
     let repo = crate::git::open_repo(root)?;
     let commit = repo.head()?.peel_to_commit()?;
@@ -223,9 +250,9 @@ fn last_modified(path: &Path) -> Result<SystemTime> {
     Ok(meta.modified()?)
 }
 
-async fn has_conflicts(root: &Path, proposal: &Proposal) -> Result<bool> {
+fn has_conflicts(root: &Path, proposal: &Proposal) -> Result<bool> {
     let repo = crate::git::open_repo(root)?;
-    for path in changed_paths(proposal).iter() {
+    for path in &changed_paths(proposal) {
         if crate::git::has_uncommitted_changes(&repo, path)? {
             warn!(
                 event = "merge.conflict",

@@ -3,6 +3,8 @@ use super::mask::{count_branch_tokens, ident_prefix, mask_code};
 pub struct RustScanner;
 
 impl RustScanner {
+    /// Count `fn` items (ignoring `pub`/`async`/`unsafe` prefixes).
+    #[must_use]
     pub fn count_functions(text: &str) -> usize {
         text.lines()
             .filter(|line| {
@@ -20,20 +22,18 @@ impl RustScanner {
                     }
                 }
                 rest.starts_with("fn ")
-                    && rest
-                        .split_whitespace()
-                        .nth(1)
-                        .map(|ident| {
-                            ident
-                                .chars()
-                                .next()
-                                .is_some_and(|c| c.is_alphanumeric() || c == '_')
-                        })
-                        .unwrap_or(false)
+                    && rest.split_whitespace().nth(1).is_some_and(|ident| {
+                        ident
+                            .chars()
+                            .next()
+                            .is_some_and(|c| c.is_alphanumeric() || c == '_')
+                    })
             })
             .count()
     }
 
+    /// Count branch keywords (`if`/`else`/`match`/loops).
+    #[must_use]
     pub fn count_branches(text: &str) -> usize {
         let keywords = ["if", "else", "match", "while", "for", "loop"];
         text.lines()
@@ -41,18 +41,24 @@ impl RustScanner {
             .sum()
     }
 
+    /// Count `pub` lines as public items.
+    #[must_use]
     pub fn count_public_items(text: &str) -> usize {
         text.lines()
             .filter(|line| line.trim_start().starts_with("pub "))
             .count()
     }
 
+    /// Count `use` lines.
+    #[must_use]
     pub fn count_imports(text: &str) -> usize {
         text.lines()
             .filter(|line| line.trim_start().starts_with("use "))
             .count()
     }
 
+    /// Extract the names of public items.
+    #[must_use]
     pub fn public_symbols(text: &str) -> Vec<String> {
         let mut out = Vec::new();
         for line in text.lines() {
@@ -110,14 +116,14 @@ mod tests {
 
     #[test]
     fn rust_counts_functions() {
-        let text = r#"
+        let text = r"
 pub fn one() {}
 async fn two() {}
 unsafe fn three() {}
 pub async unsafe fn four() {}
 fn five() {}
 // fn not counted
-"#;
+";
         assert_eq!(RustScanner::count_functions(text), 5);
     }
 

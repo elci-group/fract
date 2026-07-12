@@ -1,6 +1,7 @@
 use crate::{Module, Proposal, ValidationReport};
 
 /// Compute a confidence score [0, 1] for a proposal.
+#[must_use]
 pub fn score(_module: &Module, proposal: &Proposal, validation: &ValidationReport) -> f64 {
     let compilation = bool_score(validation.all_passed());
     let tests = bool_score(validation.test_ok);
@@ -47,7 +48,7 @@ fn diff_size_score(diff: &crate::DiffSummary) -> f64 {
 fn complexity_reduction_score(delta: f64) -> f64 {
     // Negative delta means reduction; positive means increase.
     let normalized = (-delta).clamp(-1.0, 1.0);
-    (normalized + 1.0) / 2.0
+    normalized.midpoint(1.0)
 }
 
 #[cfg(test)]
@@ -116,7 +117,7 @@ mod tests {
             logs: vec![],
         };
         let s = score(&module, &proposal, &validation);
-        assert!(s > 0.9, "confidence was {}", s);
+        assert!(s > 0.9, "confidence was {s}");
     }
 
     #[test]
@@ -134,6 +135,6 @@ mod tests {
             logs: vec![],
         };
         let s = score(&module, &proposal, &validation);
-        assert!(s < 0.85, "confidence was {}", s);
+        assert!(s < 0.85, "confidence was {s}");
     }
 }

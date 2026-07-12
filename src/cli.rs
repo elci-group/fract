@@ -72,6 +72,12 @@ Environment:
 ";
 
 impl Args {
+    /// Parse the process arguments.
+    ///
+    /// # Errors
+    /// Returns an error when an argument is unexpected or a flag that
+    /// requires a value is missing one. `--help` and `--version` print and
+    /// exit rather than returning.
     pub fn parse() -> Result<Self> {
         match Self::parse_from(std::env::args()) {
             Ok(args) => Ok(args),
@@ -83,6 +89,12 @@ impl Args {
         }
     }
 
+    /// Parse from an explicit argument iterator.
+    ///
+    /// # Errors
+    /// Returns an error when an argument is unexpected or a flag that
+    /// requires a value is missing one. `--help` and `--version` return an
+    /// error carrying the help text or version string as the message.
     pub fn parse_from<I, S>(args: I) -> Result<Self>
     where
         I: IntoIterator<Item = S>,
@@ -145,7 +157,7 @@ impl Args {
                     // ends before we call `iter.next()` to consume it.
                     let peeked = iter.peek().map(|s| s.as_ref().to_string());
                     match peeked.as_deref() {
-                        Some("--path") | Some("-p") => {
+                        Some("--path" | "-p") => {
                             iter.next();
                             path = PathBuf::from(next_value(&mut iter, "--path")?);
                         }
@@ -164,9 +176,9 @@ impl Args {
                     command = Some(Command::Init { path });
                 }
                 s if s.starts_with('-') => {
-                    return Err(Error::new(format!("unexpected argument: {}", s)));
+                    return Err(Error::new(format!("unexpected argument: {s}")));
                 }
-                _ => return Err(Error::new(format!("unexpected argument: {}", arg))),
+                _ => return Err(Error::new(format!("unexpected argument: {arg}"))),
             }
         }
 

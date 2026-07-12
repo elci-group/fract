@@ -22,8 +22,7 @@ impl Daemon {
                 continue;
             }
             let kind = match event.kind {
-                notify::EventKind::Modify(_) => EventKind::FileSaved,
-                notify::EventKind::Create(_) => EventKind::FileSaved,
+                notify::EventKind::Modify(_) | notify::EventKind::Create(_) => EventKind::FileSaved,
                 _ => EventKind::EditorHeartbeat,
             };
             let ev = Event {

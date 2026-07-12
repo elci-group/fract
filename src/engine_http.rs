@@ -1,4 +1,4 @@
-//! Hand-rolled HTTP/1.1 over std::net::TcpStream — reqwest is amber-forbidden.
+//! Hand-rolled HTTP/1.1 over `std::net::TcpStream` — reqwest is amber-forbidden.
 //! http:// only; https:// is rejected with a message pointing at a local TLS
 //! terminator.
 //!
@@ -24,6 +24,8 @@ pub struct HttpRefactorEngine {
 }
 
 impl HttpRefactorEngine {
+    /// Create an engine bound to an endpoint/model pair.
+    #[must_use]
     pub fn new(
         endpoint: String,
         model: String,
@@ -151,7 +153,7 @@ fn http_post_chat(endpoint: &str, api_key: Option<&str>, body: &str) -> Result<S
         .ok_or_else(|| format!("no address for {host}:{port}"))?;
     let mut stream = std::net::TcpStream::connect_timeout(&addr, Duration::from_secs(10))
         .map_err(|e| format!("connect {host}:{port} failed: {e}"))?;
-    if let Err(e) = stream.set_read_timeout(Some(Duration::from_secs(120))) {
+    if let Err(e) = stream.set_read_timeout(Some(Duration::from_mins(2))) {
         warn!(
             event = "http.timeout_config_failed",
             kind = "read",
@@ -172,7 +174,8 @@ fn http_post_chat(endpoint: &str, api_key: Option<&str>, body: &str) -> Result<S
         body.len()
     );
     if let Some(k) = api_key {
-        head.push_str(&format!("Authorization: Bearer {k}\r\n"));
+        use std::fmt::Write as _;
+        let _ = write!(head, "Authorization: Bearer {k}\r\n");
     }
     stream.write_all(head.as_bytes())?;
     stream.write_all(b"\r\n")?;
@@ -369,9 +372,8 @@ mod tests {
         let engine =
             HttpRefactorEngine::new("https://api.example/v1".into(), "m".into(), None, 1024);
         let res = run(engine.refactor(sample_ctx()));
-        let err = match res {
-            Ok(_) => panic!("expected https endpoint to be rejected"),
-            Err(e) => e,
+        let Err(err) = res else {
+            panic!("expected https endpoint to be rejected");
         };
         let msg = err.to_string();
         assert!(msg.contains("https"), "error should mention https: {msg}");

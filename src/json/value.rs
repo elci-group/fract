@@ -22,6 +22,7 @@ pub enum Value {
 impl Value {
     /// Serialize the value to a compact JSON string.
     #[allow(clippy::inherent_to_string_shadow_display)]
+    #[must_use]
     pub fn to_string(&self) -> String {
         let mut out = String::new();
         self.write(&mut out);
@@ -29,11 +30,15 @@ impl Value {
     }
 
     /// Construct an empty JSON object.
+    #[must_use]
     pub fn object() -> Self {
         Value::Object(Vec::new())
     }
 
-    /// Insert a key/value pair into an object. Panics if called on a non-object.
+    /// Insert a key/value pair into an object.
+    ///
+    /// # Panics
+    /// Panics if called on a non-object value.
     pub fn insert(&mut self, key: impl Into<String>, value: impl Into<Value>) {
         match self {
             Value::Object(entries) => entries.push((key.into(), value.into())),
@@ -42,6 +47,7 @@ impl Value {
     }
 
     /// Look up a key in an object value.
+    #[must_use]
     pub fn get(&self, key: &str) -> Option<&Value> {
         match self {
             Value::Object(entries) => entries.iter().find(|(k, _)| k == key).map(|(_, v)| v),
@@ -50,6 +56,7 @@ impl Value {
     }
 
     /// Borrow the inner string, if this value is a string.
+    #[must_use]
     pub fn as_str(&self) -> Option<&str> {
         match self {
             Value::String(s) => Some(s),
@@ -58,6 +65,7 @@ impl Value {
     }
 
     /// Borrow the inner array, if this value is an array.
+    #[must_use]
     pub fn as_array(&self) -> Option<&[Value]> {
         match self {
             Value::Array(a) => Some(a),
@@ -66,6 +74,7 @@ impl Value {
     }
 
     /// Return the inner number, if this value is a number.
+    #[must_use]
     pub fn as_f64(&self) -> Option<f64> {
         match self {
             Value::Number(n) => Some(*n),
@@ -74,6 +83,7 @@ impl Value {
     }
 
     /// Return the inner boolean, if this value is a boolean.
+    #[must_use]
     pub fn as_bool(&self) -> Option<bool> {
         match self {
             Value::Bool(b) => Some(*b),
@@ -120,14 +130,19 @@ impl std::fmt::Display for Value {
 }
 
 fn write_number(n: f64, out: &mut String) {
+    use std::fmt::Write as _;
     if n.is_nan() || n.is_infinite() {
         out.push_str("null");
         return;
     }
-    if n == n.trunc() && n >= i64::MIN as f64 && n <= i64::MAX as f64 {
-        out.push_str(&format!("{:.0}", n));
+    // Exact integer-valuedness test: comparing against the truncation is the
+    // semantics we want, so an epsilon comparison would be wrong here.
+    #[allow(clippy::float_cmp)]
+    let is_integral = n == n.trunc();
+    if is_integral && n >= i64::MIN as f64 && n <= i64::MAX as f64 {
+        let _ = write!(out, "{n:.0}");
     } else {
-        out.push_str(&format!("{}", n));
+        let _ = write!(out, "{n}");
     }
 }
 
@@ -176,7 +191,10 @@ fn write_string(s: &str, out: &mut String) {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c if (c as u32) < 0x20 => {
+                use std::fmt::Write as _;
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
             c => out.push(c),
         }
     }
@@ -195,11 +213,25 @@ macro_rules! impl_from_int {
     };
 }
 
-impl_from_int!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
+// Integers up to 32 bits convert to f64 without loss.
+macro_rules! impl_from_int_lossless {
+    ($($t:ty),*) => {
+        $(
+            impl From<$t> for Value {
+                fn from(n: $t) -> Self {
+                    Value::Number(f64::from(n))
+                }
+            }
+        )*
+    };
+}
+
+impl_from_int!(i64, i128, isize, u64, u128, usize);
+impl_from_int_lossless!(i8, i16, i32, u8, u16, u32);
 
 impl From<f32> for Value {
     fn from(n: f32) -> Self {
-        Value::Number(n as f64)
+        Value::Number(f64::from(n))
     }
 }
 

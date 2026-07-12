@@ -9,6 +9,9 @@ static COUNTER: AtomicU64 = AtomicU64::new(0);
 /// The directory name combines the supplied prefix, the current process id,
 /// and a per-process counter so repeated calls within the same process do
 /// not collide. The caller is responsible for cleaning up the returned path.
+///
+/// # Errors
+/// Returns an error if the directory cannot be created.
 pub fn temp_dir(prefix: &str) -> io::Result<PathBuf> {
     let base = std::env::temp_dir();
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);

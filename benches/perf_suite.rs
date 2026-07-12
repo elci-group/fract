@@ -124,21 +124,21 @@ fn measure<F: FnMut()>(runs: usize, iters: usize, mut f: F) -> std::time::Durati
 // ---------------------------------------------------------------------------
 
 fn bench_walk(results: &mut BenchResults) {
+    const WALK_ITERS: usize = 40;
     let root = make_tree(400);
     let ignore = vec!["target".to_string()];
 
-    const WALK_ITERS: usize = 40;
     let new_elapsed = measure(11, WALK_ITERS, || {
         let n = Walk::new(root.clone(), ignore.clone())
             .files()
-            .filter(|r| r.is_ok())
+            .flatten()
             .count();
         black_box(n);
     });
     let new_per_iter = new_elapsed.as_secs_f64() / WALK_ITERS as f64;
     let files = Walk::new(root.clone(), ignore.clone())
         .files()
-        .filter(|r| r.is_ok())
+        .flatten()
         .count() as f64;
     results.walk_new_files_per_sec = files / new_per_iter;
 
@@ -196,11 +196,11 @@ fn make_tree(file_count: usize) -> PathBuf {
 // ---------------------------------------------------------------------------
 
 fn bench_scanner(results: &mut BenchResults) {
+    const SCAN_ITERS: usize = 400;
     let rust = sample_rust(10_000);
     let python = sample_python(10_000);
     let jsts = sample_jsts(10_000);
 
-    const SCAN_ITERS: usize = 400;
     let new = measure(11, SCAN_ITERS, || {
         black_box(RustScanner::count_functions(&rust));
         black_box(RustScanner::count_branches(&rust));
@@ -233,9 +233,9 @@ fn naive_count(text: &str, needles: &[&str]) -> usize {
 // ---------------------------------------------------------------------------
 
 fn bench_json(results: &mut BenchResults) {
+    const JSON_ITERS: usize = 4_000;
     let payload = build_payload();
 
-    const JSON_ITERS: usize = 4_000;
     let new = measure(11, JSON_ITERS, || {
         black_box(payload.to_string());
     });
@@ -252,7 +252,7 @@ fn naive_json(v: &Value) -> String {
         Value::Null => "null".to_string(),
         Value::Bool(b) => b.to_string(),
         Value::Number(n) => n.to_string(),
-        Value::String(s) => format!("\"{}\"", s),
+        Value::String(s) => format!("\"{s}\""),
         Value::Array(arr) => {
             let parts: Vec<String> = arr.iter().map(naive_json).collect();
             format!("[{}]", parts.join(","))
@@ -286,8 +286,8 @@ fn build_payload() -> Value {
 // ---------------------------------------------------------------------------
 
 fn bench_time(results: &mut BenchResults) {
-    let t = now();
     const TIME_ITERS: usize = 200_000;
+    let t = now();
     let elapsed = measure(11, TIME_ITERS, || {
         black_box(to_rfc3339(t));
     });
@@ -311,6 +311,7 @@ fn bench_id(results: &mut BenchResults) {
 // ---------------------------------------------------------------------------
 
 fn bench_cli(results: &mut BenchResults) {
+    const CLI_ITERS: usize = 200_000;
     let args = [
         "fract",
         "--config",
@@ -319,7 +320,6 @@ fn bench_cli(results: &mut BenchResults) {
         "--path",
         "/tmp/project",
     ];
-    const CLI_ITERS: usize = 200_000;
     let elapsed = measure(11, CLI_ITERS, || {
         let parsed = Args::parse_from(args).unwrap();
         black_box(parsed);

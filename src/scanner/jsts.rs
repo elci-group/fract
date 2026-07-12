@@ -3,6 +3,8 @@ use super::mask::{count_branch_tokens, ident_prefix, is_arrow_function};
 pub struct JsTsScanner;
 
 impl JsTsScanner {
+    /// Count function declarations and arrow functions.
+    #[must_use]
     pub fn count_functions(text: &str) -> usize {
         text.lines()
             .map(|line| {
@@ -15,18 +17,16 @@ impl JsTsScanner {
                     if let Some(r) = rest.strip_prefix("async ") {
                         rest = r;
                     }
-                    if rest.starts_with("function ") {
-                        1
-                    } else {
-                        0
-                    }
+                    usize::from(rest.starts_with("function "))
                 };
-                let arrow_form = if is_arrow_function(trimmed) { 1 } else { 0 };
+                let arrow_form = usize::from(is_arrow_function(trimmed));
                 function_form + arrow_form
             })
             .sum()
     }
 
+    /// Count branch keywords (`if`/`else`/`switch`/`case`/loops).
+    #[must_use]
     pub fn count_branches(text: &str) -> usize {
         let keywords = ["if", "else", "switch", "case", "for", "while"];
         text.lines()
@@ -34,18 +34,24 @@ impl JsTsScanner {
             .sum()
     }
 
+    /// Count `export` lines as public items.
+    #[must_use]
     pub fn count_public_items(text: &str) -> usize {
         text.lines()
             .filter(|line| line.trim_start().starts_with("export "))
             .count()
     }
 
+    /// Count `import` lines.
+    #[must_use]
     pub fn count_imports(text: &str) -> usize {
         text.lines()
             .filter(|line| line.trim_start().starts_with("import "))
             .count()
     }
 
+    /// Extract the names of exported items.
+    #[must_use]
     pub fn public_symbols(text: &str) -> Vec<String> {
         let mut out = Vec::new();
         for line in text.lines() {

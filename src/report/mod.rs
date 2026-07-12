@@ -210,7 +210,7 @@ mod tests {
     #[test]
     fn noise_budget_keeps_worst_and_preserves_summary() {
         let mods: Vec<Module> = (0..5)
-            .map(|i| module(&format!("m{i}.rs"), 0.83 + i as f64 * 0.03, 100))
+            .map(|i| module(&format!("m{i}.rs"), 0.83 + f64::from(i) * 0.03, 100))
             .collect();
         let mut r = Report::from_modules(Path::new("."), &mods, 0.82, false);
         let total = r.summary.total;
@@ -227,9 +227,6 @@ mod tests {
     #[test]
     fn sarif_structural_invariants_hold() {
         use crate::json::{self, Value};
-        let mods = vec![module("a.rs", 0.9, 100), module("b.rs", 0.85, 50)];
-        let r = Report::from_modules(Path::new("."), &mods, 0.82, true);
-        let v = json::parse(&render_sarif(&r).to_string()).unwrap();
 
         fn field<'a>(v: &'a Value, k: &str) -> Option<&'a Value> {
             match v {
@@ -249,6 +246,10 @@ mod tests {
                 _ => None,
             }
         }
+
+        let mods = vec![module("a.rs", 0.9, 100), module("b.rs", 0.85, 50)];
+        let r = Report::from_modules(Path::new("."), &mods, 0.82, true);
+        let v = json::parse(&render_sarif(&r).to_string()).unwrap();
 
         let runs = arr(&v, "runs");
         assert_eq!(runs.len(), 1);

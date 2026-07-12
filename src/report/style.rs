@@ -18,6 +18,8 @@ pub enum OutputFormat {
 }
 
 impl OutputFormat {
+    /// Parse an output-format name (case-insensitive, common aliases accepted).
+    #[must_use]
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
             "human" | "text" | "table" => Some(OutputFormat::Human),
@@ -29,6 +31,8 @@ impl OutputFormat {
         }
     }
 
+    /// Canonical name of the format.
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             OutputFormat::Human => "human",
@@ -48,6 +52,8 @@ pub enum ColorChoice {
 }
 
 impl ColorChoice {
+    /// Parse a color-choice name (case-insensitive, common aliases accepted).
+    #[must_use]
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
             "auto" => Some(ColorChoice::Auto),
@@ -57,6 +63,8 @@ impl ColorChoice {
         }
     }
 
+    /// Canonical name of the choice.
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             ColorChoice::Auto => "auto",
@@ -75,6 +83,8 @@ pub enum Verbosity {
 }
 
 impl Verbosity {
+    /// Parse a verbosity name (case-insensitive, common aliases accepted).
+    #[must_use]
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
             "quiet" | "q" => Some(Verbosity::Quiet),
@@ -86,6 +96,7 @@ impl Verbosity {
     }
 
     /// Fold a signed counter (`-v` adds one, `-q` subtracts one) into a level.
+    #[must_use]
     pub fn from_count(count: i32) -> Self {
         match count {
             i32::MIN..=-1 => Verbosity::Quiet,
@@ -107,6 +118,8 @@ pub struct Style {
 }
 
 impl Style {
+    /// Resolve the effective style from a color choice and the environment.
+    #[must_use]
     pub fn detect(choice: ColorChoice) -> Self {
         let color = match choice {
             ColorChoice::Always => true,

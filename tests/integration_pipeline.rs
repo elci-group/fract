@@ -40,10 +40,11 @@ async fn index_health_and_proposals_pipeline() {
     // Large, branch-heavy module — should dominate entropy.
     let mut big = String::new();
     for i in 0..60 {
-        big.push_str(&format!(
-            "pub fn f{i}(x: i32) -> i32 {{ if x > 0 {{ if x > 1 {{ if x > 2 {{ x }} else {{ 0 }} }} else {{ 0 }} }} else {{ -1 }}\n",
-            i = i
-        ));
+        use std::fmt::Write as _;
+        let _ = writeln!(
+            big,
+            "pub fn f{i}(x: i32) -> i32 {{ if x > 0 {{ if x > 1 {{ if x > 2 {{ x }} else {{ 0 }} }} else {{ 0 }} }} else {{ -1 }}"
+        );
     }
     write_file(&root.join("src/big.rs"), &big);
 
@@ -96,6 +97,9 @@ async fn index_health_and_proposals_pipeline() {
 }
 
 #[tokio::test]
+// `score` is a computed constant for the empty project (100.0 by construction);
+// exact equality is the intent of this test.
+#[allow(clippy::float_cmp)]
 async fn empty_project_scores_perfect_and_proposes_nothing() {
     let root = temp_project("empty");
     let cfg = Config::default_for(root.clone());

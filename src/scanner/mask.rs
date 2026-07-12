@@ -3,6 +3,7 @@ use super::python::PythonScanner;
 use super::rust::RustScanner;
 
 /// List the public symbols of `text` for the given language, sorted and deduped.
+#[must_use]
 pub fn public_symbols(text: &str, lang: crate::Language) -> Vec<String> {
     let mut v = match lang {
         crate::Language::Rust => RustScanner::public_symbols(text),
@@ -160,7 +161,7 @@ mod tests {
             let mut s = String::new();
             for _ in 0..len {
                 state = state.wrapping_mul(1_103_515_245).wrapping_add(12_345);
-                s.push(alphabet[(state as usize) % alphabet.len()]);
+                s.push(alphabet[usize::try_from(state).unwrap() % alphabet.len()]);
             }
             let once = mask_code(&s);
             let twice = mask_code(&once);

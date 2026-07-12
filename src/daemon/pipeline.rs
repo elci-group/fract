@@ -237,6 +237,11 @@ impl Daemon {
     /// Build (and enqueue) a proposal for each currently-indexed module whose
     /// entropy is at or above `config.entropy_threshold`. Confidence is derived
     /// from a nominal passing validation report so the result is deterministic.
+    ///
+    /// # Errors
+    /// Currently infallible in practice — persistence failures are logged, not
+    /// propagated — but the signature is `Result` for parity with the other
+    /// pipeline stages.
     #[tracing::instrument(skip(self))]
     pub async fn detect_proposals(self: &Arc<Self>) -> Result<Vec<Proposal>> {
         let modules = self.modules.read().await.clone();

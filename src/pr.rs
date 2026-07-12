@@ -8,7 +8,9 @@
 use crate::{Proposal, ValidationReport};
 
 /// Build a Conventional Commit message (subject + body) for a proposal.
+#[must_use]
 pub fn conventional_commit_message(p: &Proposal) -> String {
+    use std::fmt::Write as _;
     let scope = p
         .module
         .file_stem()
@@ -17,21 +19,23 @@ pub fn conventional_commit_message(p: &Proposal) -> String {
     let subject = format!("refactor({}): {}", scope, p.kind.to_string().to_lowercase());
 
     let mut out = subject;
-    out.push_str(&format!(
+    let _ = write!(
+        out,
         "\n\nmodule: {}\nconfidence: {:.0}%\n",
         p.module.display(),
         p.confidence * 100.0
-    ));
-    out.push_str(&format!(
-        "changes: +{} -{} across {} file(s)\n",
+    );
+    let _ = writeln!(
+        out,
+        "changes: +{} -{} across {} file(s)",
         p.diff_summary.lines_added,
         p.diff_summary.lines_removed,
         p.diff_summary.files_added + p.diff_summary.files_modified + p.diff_summary.files_removed
-    ));
+    );
     if !p.migration_notes.is_empty() {
         out.push_str("\nmigration notes:\n");
         for n in &p.migration_notes {
-            out.push_str(&format!("- {n}\n"));
+            let _ = writeln!(out, "- {n}");
         }
     }
     out
@@ -39,6 +43,7 @@ pub fn conventional_commit_message(p: &Proposal) -> String {
 
 /// Render a Markdown pull-request body. `branch` and `sha` may be empty in
 /// assisted mode (changes left uncommitted on the branch).
+#[must_use]
 pub fn render_pr_body(p: &Proposal, diff: &str, branch: &str, sha: &str) -> String {
     use std::fmt::Write;
     let mut out = String::new();

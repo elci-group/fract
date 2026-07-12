@@ -43,29 +43,25 @@ impl RefactorEngine for MockRefactorEngine {
             let original = ctx.source;
             let lines: Vec<&str> = original.lines().collect();
 
-            match ctx.module.language {
-                crate::Language::Rust => {
-                    // Simple split: put public items in lib.rs-like file and internals in internal.rs.
-                    let (public, internal): (Vec<&str>, Vec<&str>) = lines
-                        .iter()
-                        .copied()
-                        .partition(|l| l.trim().starts_with("pub ") || l.trim().starts_with("//"));
-                    files.push((ctx.module.path.clone(), public.join("\n")));
-                    let mut internal_path = ctx.module.path.clone();
-                    internal_path.set_extension("");
-                    let stem = internal_path
-                        .file_stem()
-                        .unwrap_or_default()
-                        .to_string_lossy();
-                    let internal_file = PathBuf::from(format!("{}_internal.rs", stem));
-                    files.push((internal_file, internal.join("\n")));
-                }
-                _ => {
-                    // Default: extract comments/header as migration notes and return cleaned file.
-                    let cleaned: Vec<_> =
-                        lines.into_iter().filter(|l| !l.trim().is_empty()).collect();
-                    files.push((ctx.module.path, cleaned.join("\n")));
-                }
+            if ctx.module.language == crate::Language::Rust {
+                // Simple split: put public items in lib.rs-like file and internals in internal.rs.
+                let (public, internal): (Vec<&str>, Vec<&str>) = lines
+                    .iter()
+                    .copied()
+                    .partition(|l| l.trim().starts_with("pub ") || l.trim().starts_with("//"));
+                files.push((ctx.module.path.clone(), public.join("\n")));
+                let mut internal_path = ctx.module.path.clone();
+                internal_path.set_extension("");
+                let stem = internal_path
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy();
+                let internal_file = PathBuf::from(format!("{stem}_internal.rs"));
+                files.push((internal_file, internal.join("\n")));
+            } else {
+                // Default: extract comments/header as migration notes and return cleaned file.
+                let cleaned: Vec<_> = lines.into_iter().filter(|l| !l.trim().is_empty()).collect();
+                files.push((ctx.module.path, cleaned.join("\n")));
             }
 
             let diff_summary = DiffSummary {
@@ -90,6 +86,9 @@ impl RefactorEngine for MockRefactorEngine {
 }
 
 /// Build a context package for a module.
+///
+/// # Errors
+/// Returns an error if the module source file cannot be read.
 pub fn build_context(root: &Path, module: &Module) -> Result<RefactorContext> {
     let full_path = root.join(&module.path);
     let source = std::fs::read_to_string(&full_path)
@@ -101,7 +100,7 @@ pub fn build_context(root: &Path, module: &Module) -> Result<RefactorContext> {
             let t = l.trim();
             t.starts_with("use ") || t.starts_with("import ") || t.starts_with("from ")
         })
-        .map(|l| l.to_string())
+        .map(ToString::to_string)
         .collect();
 
     let exports: Vec<String> = source
@@ -110,7 +109,7 @@ pub fn build_context(root: &Path, module: &Module) -> Result<RefactorContext> {
             let t = l.trim();
             t.starts_with("pub ") || t.starts_with("export ")
         })
-        .map(|l| l.to_string())
+        .map(ToString::to_string)
         .collect();
 
     let project_conventions = std::fs::read_to_string(root.join("rustfmt.toml"))
@@ -128,6 +127,10 @@ pub fn build_context(root: &Path, module: &Module) -> Result<RefactorContext> {
 }
 
 /// Execute a refactor proposal in a temporary workspace.
+///
+/// # Errors
+/// Returns an error if the context-building task fails to join, the module
+/// source cannot be read, or the refactor engine returns an error.
 pub async fn execute_proposal(
     engine: &dyn RefactorEngine,
     root: &Path,
@@ -163,7 +166,7 @@ pub async fn execute_proposal(
     });
 
     proposal.diff_summary = output.diff_summary.clone();
-    proposal.migration_notes = output.migration_notes.clone();
+    proposal.migration_notes.clone_from(&output.migration_notes);
     proposal.changed_files = output
         .files
         .iter()

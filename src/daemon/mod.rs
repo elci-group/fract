@@ -32,6 +32,8 @@ pub struct Daemon {
 }
 
 impl Daemon {
+    /// Construct a daemon from a configuration.
+    #[must_use]
     pub fn new(config: Config) -> Self {
         let engine = build_engine(&config.llm);
         let store = Store::open(&config.project_root);
@@ -54,10 +56,14 @@ impl Daemon {
         }
     }
 
+    /// Access the event bus.
+    #[must_use]
     pub fn event_bus(&self) -> &EventBus {
         &self.event_bus
     }
 
+    /// Access the daemon configuration.
+    #[must_use]
     pub fn config(&self) -> &Config {
         &self.config
     }
@@ -73,6 +79,12 @@ impl Daemon {
         }
     }
 
+    /// Start the daemon's background tasks (file watcher, periodic reindex,
+    /// queue processor, merge watcher).
+    ///
+    /// # Errors
+    /// Returns an error if the initial index refresh fails, or if the
+    /// filesystem watcher cannot be created or attached to the watch root.
     #[tracing::instrument(skip(self), fields(mode = %self.config.mode))]
     pub async fn run(self: Arc<Self>) -> Result<()> {
         info!(event = "daemon.start", "starting fract daemon");
@@ -160,6 +172,9 @@ impl Daemon {
     /// proposal for every module at or above the entropy threshold. Unlike the
     /// background `process_queue` loop this performs no shell-out and touches no
     /// git repository, so it is safe to drive from tests and offline hosts.
+    ///
+    /// # Errors
+    /// Returns an error if the index refresh or proposal detection fails.
     #[tracing::instrument(skip(self))]
     pub async fn scan(self: &Arc<Self>) -> Result<()> {
         self.refresh_index().await?;
@@ -172,12 +187,11 @@ fn build_engine(llm: &crate::config::LlmConfig) -> Arc<dyn refactor::RefactorEng
     if llm.provider.eq_ignore_ascii_case("mock") || llm.provider.is_empty() {
         return Arc::new(refactor::MockRefactorEngine);
     }
-    let endpoint = match llm.endpoint.clone() {
-        Some(e) => e,
-        None => {
-            warn!(event = "engine.config", provider = %llm.provider, "no llm.endpoint set; defaulting to http://127.0.0.1:11434/v1");
-            "http://127.0.0.1:11434/v1".to_string()
-        }
+    let endpoint = if let Some(e) = llm.endpoint.clone() {
+        e
+    } else {
+        warn!(event = "engine.config", provider = %llm.provider, "no llm.endpoint set; defaulting to http://127.0.0.1:11434/v1");
+        "http://127.0.0.1:11434/v1".to_string()
     };
     if endpoint.starts_with("https://") {
         warn!(event = "engine.config", %endpoint, "https endpoint configured; fract's engine will refuse to connect (terminate TLS locally and use http://)");

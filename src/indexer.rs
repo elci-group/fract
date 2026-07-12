@@ -12,10 +12,17 @@ pub struct Indexer {
 }
 
 impl Indexer {
+    /// Create an indexer rooted at `root` with ignore glob patterns.
+    #[must_use]
     pub fn new(root: PathBuf, ignore: Vec<String>) -> Self {
         Self { root, ignore }
     }
 
+    /// Index every supported file under the root.
+    ///
+    /// # Errors
+    /// Returns an error if a directory entry cannot be read or a supported
+    /// source file cannot be read or stat'ed.
     pub fn index(&self) -> Result<Vec<Module>> {
         let mut modules = Vec::new();
         for entry in Walk::new(self.root.clone(), self.ignore.clone()).files() {
@@ -43,6 +50,8 @@ impl Indexer {
         Ok(modules)
     }
 
+    /// Match a relative path against a glob pattern.
+    #[must_use]
     pub fn glob_match(path: &str, pat: &str) -> bool {
         crate::walk::glob_match(path, pat)
     }
@@ -50,6 +59,9 @@ impl Indexer {
     /// Re-index a single path (for incremental notify updates). Returns `None`
     /// for empty/unsupported files. `path` may be absolute (under `self.root`)
     /// or already relative.
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be read or stat'ed.
     pub fn index_file(&self, path: &Path) -> Result<Option<Module>> {
         let abs = if path.is_absolute() {
             path.to_path_buf()
@@ -143,7 +155,7 @@ impl Indexer {
                         .next()
                         .unwrap_or(rest)
                         .trim_end_matches(';');
-                    deps.push(PathBuf::from(format!("src/{}.rs", first)));
+                    deps.push(PathBuf::from(format!("src/{first}.rs")));
                 }
             }
         }

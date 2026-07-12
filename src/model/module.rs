@@ -38,6 +38,8 @@ pub enum Language {
 }
 
 impl Language {
+    /// Detect the language from a file extension.
+    #[must_use]
     pub fn from_path(path: &std::path::Path) -> Self {
         match path.extension().and_then(|e| e.to_str()) {
             Some("rs") => Language::Rust,
@@ -58,6 +60,8 @@ pub enum Health {
 }
 
 impl Health {
+    /// Band an entropy score into a health level.
+    #[must_use]
     pub fn from_entropy(entropy: f64) -> Self {
         match entropy {
             e if e < 0.4 => Health::Excellent,
@@ -67,6 +71,8 @@ impl Health {
         }
     }
 
+    /// Human-readable label for the health level.
+    #[must_use]
     pub fn label(&self) -> &'static str {
         match self {
             Health::Excellent => "Excellent",

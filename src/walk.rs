@@ -26,6 +26,8 @@ pub struct Entry {
 }
 
 impl Walk {
+    /// Create a walker rooted at `root` with ignore glob patterns.
+    #[must_use]
     pub fn new(root: PathBuf, ignore: Vec<String>) -> Self {
         Self {
             root,
@@ -36,6 +38,7 @@ impl Walk {
 
     /// Limit recursion to `depth` levels below the root (root's direct children
     /// are depth 1). `None` (the default) means unlimited.
+    #[must_use]
     pub fn with_max_depth(mut self, depth: usize) -> Self {
         self.max_depth = Some(depth);
         self
@@ -135,9 +138,8 @@ impl Iterator for WalkIter {
                         }
                         #[cfg(unix)]
                         {
-                            let target = match fs::metadata(&path) {
-                                Ok(m) => m,
-                                Err(_) => continue,
+                            let Ok(target) = fs::metadata(&path) else {
+                                continue;
                             };
                             let id = (target.dev(), target.ino());
                             if !self.seen.insert(id) {
@@ -202,6 +204,8 @@ impl WalkIter {
     }
 }
 
+/// Match a relative path against a glob pattern (`**`, `*`, `?`).
+#[must_use]
 pub fn glob_match(path: &str, pat: &str) -> bool {
     let pat = pat.trim_start_matches('/');
     if pat == "**" {
@@ -359,7 +363,7 @@ mod tests {
         // As a non-root user the locked dir is skipped; as root it is read.
         // Either way the walk must complete and surface the readable file.
         let results: Vec<_> = Walk::new(root.clone(), Vec::new()).files().collect();
-        let paths: Vec<_> = results.into_iter().filter_map(|r| r.ok()).collect();
+        let paths: Vec<_> = results.into_iter().filter_map(Result::ok).collect();
         assert!(paths.iter().any(|p| p.ends_with("open/yes.txt")));
 
         // Restore so cleanup can remove the dir.

@@ -162,16 +162,15 @@ async fn check_api_compatibility(root: &Path, proposal: &Proposal) -> (bool, Vec
             path.clone()
         };
         // New file (or git failure) → empty baseline → no removals required.
-        let before = match git_show_head(root, &rel).await {
-            Some(b) => b,
-            None => {
-                warn!(
-                    event = "validation.git_show_failed",
-                    path = %rel.display(),
-                    "git show HEAD failed; using empty baseline"
-                );
-                String::new()
-            }
+        let before = if let Some(b) = git_show_head(root, &rel).await {
+            b
+        } else {
+            warn!(
+                event = "validation.git_show_failed",
+                path = %rel.display(),
+                "git show HEAD failed; using empty baseline"
+            );
+            String::new()
         };
         let removed = removed_public_symbols(&before, &after, lang);
         if !removed.is_empty() {
@@ -255,8 +254,8 @@ mod tests {
 let s = "pub fn ghost()";
 // pub fn commented() {}
 "#;
-        let after = r#"pub fn real() {}
-"#;
+        let after = r"pub fn real() {}
+";
         let removed = removed_public_symbols(before, after, Language::Rust);
         assert!(removed.is_empty(), "got {removed:?}");
     }

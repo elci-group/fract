@@ -1,7 +1,9 @@
 //! Human (terminal table) renderer.
 
-use super::model::*;
-use super::style::*;
+use super::model::{Finding, Report, Severity};
+use super::style::{
+    display_width, ellipsize, fmt_confidence_num, paint, severity_code, Style, Verbosity,
+};
 
 // ---------------------------------------------------------------------------
 // Human renderer

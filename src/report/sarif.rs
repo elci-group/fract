@@ -4,7 +4,7 @@ use crate::json::Value;
 use crate::RefactorKind;
 
 use super::json_out::sv;
-use super::model::*;
+use super::model::{Finding, Report, Severity};
 
 // ---------------------------------------------------------------------------
 // SARIF 2.1.0
@@ -58,7 +58,7 @@ fn sarif_result(f: &Finding) -> Value {
     props.insert("entropy", Value::Number(f.entropy));
     props.insert(
         "confidence",
-        f.confidence.map(Value::Number).unwrap_or(Value::Null),
+        f.confidence.map_or(Value::Null, Value::Number),
     );
     props.insert("next_action", sv(&f.next_action));
     r.insert("properties", props);

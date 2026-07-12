@@ -4,6 +4,10 @@ use super::value::Value;
 use serde::ser::{self, Serialize, Serializer};
 
 /// Convert any serde-serializable value into a [`Value`].
+///
+/// # Panics
+/// Panics if the value's `Serialize` implementation fails (the built-in
+/// serializer itself cannot fail, but a custom `Serialize` impl may error).
 pub fn to_value<T: Serialize>(value: T) -> Value {
     value
         .serialize(ValueSerializer)
@@ -45,15 +49,15 @@ impl Serializer for ValueSerializer {
     }
 
     fn serialize_i8(self, v: i8) -> Result<Value, SerError> {
-        Ok(Value::Number(v as f64))
+        Ok(Value::Number(f64::from(v)))
     }
 
     fn serialize_i16(self, v: i16) -> Result<Value, SerError> {
-        Ok(Value::Number(v as f64))
+        Ok(Value::Number(f64::from(v)))
     }
 
     fn serialize_i32(self, v: i32) -> Result<Value, SerError> {
-        Ok(Value::Number(v as f64))
+        Ok(Value::Number(f64::from(v)))
     }
 
     fn serialize_i64(self, v: i64) -> Result<Value, SerError> {
@@ -65,15 +69,15 @@ impl Serializer for ValueSerializer {
     }
 
     fn serialize_u8(self, v: u8) -> Result<Value, SerError> {
-        Ok(Value::Number(v as f64))
+        Ok(Value::Number(f64::from(v)))
     }
 
     fn serialize_u16(self, v: u16) -> Result<Value, SerError> {
-        Ok(Value::Number(v as f64))
+        Ok(Value::Number(f64::from(v)))
     }
 
     fn serialize_u32(self, v: u32) -> Result<Value, SerError> {
-        Ok(Value::Number(v as f64))
+        Ok(Value::Number(f64::from(v)))
     }
 
     fn serialize_u64(self, v: u64) -> Result<Value, SerError> {
@@ -85,7 +89,7 @@ impl Serializer for ValueSerializer {
     }
 
     fn serialize_f32(self, v: f32) -> Result<Value, SerError> {
-        Ok(Value::Number(v as f64))
+        Ok(Value::Number(f64::from(v)))
     }
 
     fn serialize_f64(self, v: f64) -> Result<Value, SerError> {
@@ -102,7 +106,7 @@ impl Serializer for ValueSerializer {
 
     fn serialize_bytes(self, v: &[u8]) -> Result<Value, SerError> {
         Ok(Value::Array(
-            v.iter().map(|&b| Value::Number(b as f64)).collect(),
+            v.iter().map(|&b| Value::Number(f64::from(b))).collect(),
         ))
     }
 

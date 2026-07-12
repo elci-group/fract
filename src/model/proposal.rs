@@ -48,6 +48,8 @@ pub enum RefactorKind {
 }
 
 impl RefactorKind {
+    /// Human-readable description of the refactor kind.
+    #[must_use]
     pub fn description(&self) -> &'static str {
         match self {
             RefactorKind::SplitModule => "Split responsibilities into submodules",
@@ -60,6 +62,7 @@ impl RefactorKind {
 
     /// Parse a `RefactorKind` from its human-readable `description()`/`Display`
     /// label. Returns `None` for unknown labels.
+    #[must_use]
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "Split responsibilities into submodules" => Some(RefactorKind::SplitModule),
@@ -87,6 +90,7 @@ pub enum ProposalStatus {
 impl ProposalStatus {
     /// Parse a `ProposalStatus` from its human-readable `Display` label.
     /// Returns `None` for unknown labels.
+    #[must_use]
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "Detected" => Some(ProposalStatus::Detected),
@@ -119,6 +123,9 @@ pub struct TimelineEvent {
 }
 
 /// Validation report produced by the automated pipeline.
+// The bools are independent pipeline-stage results persisted to the journal;
+// a bitfield or substruct would make the serde format and the callers worse.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ValidationReport {
     pub fmt_ok: bool,
@@ -132,6 +139,8 @@ pub struct ValidationReport {
 }
 
 impl ValidationReport {
+    /// Whether every pipeline stage passed.
+    #[must_use]
     pub fn all_passed(&self) -> bool {
         self.fmt_ok && self.clippy_ok && self.check_ok && self.test_ok && self.api_compatible
     }

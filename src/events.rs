@@ -22,10 +22,14 @@ impl Default for EventBus {
 }
 
 impl EventBus {
+    /// Create an empty event bus.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Subscribe to future events.
+    #[must_use]
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {
         self.tx.subscribe()
     }

@@ -3,6 +3,8 @@ use super::mask::{count_branch_tokens, ident_prefix};
 pub struct PythonScanner;
 
 impl PythonScanner {
+    /// Count top-level-or-nested `def` lines with a valid identifier.
+    #[must_use]
     pub fn count_functions(text: &str) -> usize {
         text.lines()
             .filter(|line| {
@@ -14,6 +16,8 @@ impl PythonScanner {
             .count()
     }
 
+    /// Count branch keywords (`if`/`elif`/`else`/loops/`and`/`or`).
+    #[must_use]
     pub fn count_branches(text: &str) -> usize {
         let keywords = ["if", "elif", "else", "for", "while", "and", "or"];
         text.lines()
@@ -21,12 +25,16 @@ impl PythonScanner {
             .sum()
     }
 
+    /// Count non-underscore-prefixed lines as public items.
+    #[must_use]
     pub fn count_public_items(text: &str) -> usize {
         text.lines()
             .filter(|line| !line.trim_start().starts_with('_'))
             .count()
     }
 
+    /// Count `import`/`from` lines.
+    #[must_use]
     pub fn count_imports(text: &str) -> usize {
         text.lines()
             .filter(|line| {
@@ -36,10 +44,12 @@ impl PythonScanner {
             .count()
     }
 
+    /// Extract the names of top-level `def`/`class` items not starting with `_`.
+    #[must_use]
     pub fn public_symbols(text: &str) -> Vec<String> {
         let mut out = Vec::new();
         for line in text.lines() {
-            if line.chars().next().is_some_and(|c| c.is_whitespace()) {
+            if line.chars().next().is_some_and(char::is_whitespace) {
                 continue;
             }
             let name = if let Some(rest) = line.strip_prefix("def ") {

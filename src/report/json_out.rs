@@ -2,7 +2,7 @@
 
 use crate::json::Value;
 
-use super::model::*;
+use super::model::{Finding, Report, Summary};
 
 // ---------------------------------------------------------------------------
 // JSON / JSONL
@@ -32,7 +32,7 @@ fn finding_value(f: &Finding) -> Value {
     o.insert("entropy", Value::Number(f.entropy));
     o.insert(
         "confidence",
-        f.confidence.map(Value::Number).unwrap_or(Value::Null),
+        f.confidence.map_or(Value::Null, Value::Number),
     );
     o.insert("message", sv(&f.message));
     o.insert("why", sv(&f.why));
