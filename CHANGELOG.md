@@ -10,6 +10,83 @@ semver bump — version numbers are never hand-written.
 
 ## [Unreleased]
 
+### Changed
+
+- Finish replacing magic numbers with named constants in the daemon
+  pipeline, completing the `pipeline.rs` health-entropy reduction from
+  0.70 to 0.65.
+
+## [0.4.3] - 2026-07-12
+
+### Added
+
+- 15 property tests built on a small deterministic generator (no new
+  dependencies): JSON value-tree serialization roundtrips, entropy
+  bounds and monotonicity characterizations, and walker invariants.
+- ~30 named constants replacing magic numbers across the daemon,
+  `engine_http`, and pipeline modules.
+
+### Fixed
+
+- Eliminate an environment-dependent test race found under Miri via a
+  test-only `Style::detect_auto` seam. A full Miri run (266 tests) now
+  passes with no undefined behavior.
+
+### Changed
+
+- Begin the `pipeline.rs` health-entropy reduction (0.70 toward 0.65)
+  by extracting helpers and simplifying control flow.
+
+### Documented
+
+- Lock in characterization tests for two known behaviors: entropy is
+  not globally monotone in `lines` (NaN-heavy inputs), and untracked
+  files do not dirty the working-tree check. Both are deliberate
+  semantics, now pinned by tests.
+
+## [0.4.2] - 2026-07-12
+
+### Added
+
+- GitHub Actions CI workflow (`.github/workflows/ci.yml`) running the
+  full `scripts/ci.sh` quality gate.
+- ~1,700 lines of new unit tests across `config`, `events`, `git`,
+  `json::ser`, the CLI (`main`), `model`, `queue`, `refactor`,
+  `report::style`, `validation`, `web`, and the daemon pipeline.
+  Line coverage rises from 65.86% to 92.35%; test count from 178 to 341.
+
+### Removed
+
+- Drop the stale `examples/` directory.
+
+## [0.4.1] - 2026-07-12
+
+### Added
+
+- `ARCHITECTURE.md`: module map, data flow, and extension points.
+
+### Changed
+
+- Rewrite `README.md` around installation, quickstart, and pointers to
+  the architecture and contributing docs.
+
+## [0.4.0] - 2026-07-12
+
+### Added
+
+- `CONTRIBUTING.md`: development setup, the quality gate, and how the
+  kaptaind auto-commit workflow treats working-tree changes.
+- This changelog, backfilled through v0.2.10.
+
+## [0.3.0] - 2026-07-12
+
+### Added
+
+- `LICENSE-MIT` and `LICENSE-APACHE` files matching the dual-license
+  metadata already declared in `Cargo.toml`.
+- Module-level documentation headers across every source module;
+  `cargo doc` builds with zero warnings.
+
 ## [0.2.10] - 2026-07-12
 
 ### Changed
