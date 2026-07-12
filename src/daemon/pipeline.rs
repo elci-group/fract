@@ -171,38 +171,7 @@ impl Daemon {
                 }
             };
             merge::apply(&self.config.project_root, &mut proposal).await?;
-
-            if self.config.mode == Mode::Autonomous {
-                let message = crate::pr::conventional_commit_message(&proposal);
-                let sha = merge::commit(&self.config.project_root, &mut proposal, &message).await?;
-                let diff = match merge::diff_last_commit(&self.config.project_root) {
-                    Ok(d) => d,
-                    Err(e) => {
-                        warn!(
-                            event = "merge.diff_failed",
-                            proposal = %proposal.id,
-                            error = %e,
-                            "failed to compute commit diff; using empty diff"
-                        );
-                        String::new()
-                    }
-                };
-                proposal.pr_body = Some(crate::pr::render_pr_body(&proposal, &diff, &branch, &sha));
-
-                let mut health = self.project_health.write().await;
-                health.refactors_today.completed += 1;
-                health.refactors_today.loc_removed += proposal.diff_summary.lines_removed;
-                health.refactors_today.complexity_reduced +=
-                    proposal.diff_summary.lines_removed as f64 / 100.0;
-            } else {
-                // Assisted: branch created and files written, left uncommitted.
-                proposal.status = ProposalStatus::Accepted;
-                proposal.pr_body = Some(crate::pr::render_pr_body(&proposal, "", &branch, ""));
-                proposal.timeline.push(TimelineEvent {
-                    at: now(),
-                    message: format!("Branch {branch} prepared (assisted mode)"),
-                });
-            }
+            self.finalize_merge(&mut proposal, &branch).await?;
 
             self.queue
                 .update_proposal(&proposal.id, |p| *p = proposal.clone())
@@ -211,6 +180,43 @@ impl Daemon {
             persist_proposal(&self.store, &proposal).await;
             let health_snapshot = self.project_health.read().await.clone();
             persist_health_snapshot(&self.store, &health_snapshot).await;
+        }
+        Ok(())
+    }
+
+    /// Finish an applied merge: commit and render the PR body in autonomous
+    /// mode, or leave the branch staged with a note in assisted mode.
+    async fn finalize_merge(&self, proposal: &mut Proposal, branch: &str) -> Result<()> {
+        if self.config.mode == Mode::Autonomous {
+            let message = crate::pr::conventional_commit_message(proposal);
+            let sha = merge::commit(&self.config.project_root, proposal, &message).await?;
+            let diff = match merge::diff_last_commit(&self.config.project_root) {
+                Ok(d) => d,
+                Err(e) => {
+                    warn!(
+                        event = "merge.diff_failed",
+                        proposal = %proposal.id,
+                        error = %e,
+                        "failed to compute commit diff; using empty diff"
+                    );
+                    String::new()
+                }
+            };
+            proposal.pr_body = Some(crate::pr::render_pr_body(proposal, &diff, branch, &sha));
+
+            let mut health = self.project_health.write().await;
+            health.refactors_today.completed += 1;
+            health.refactors_today.loc_removed += proposal.diff_summary.lines_removed;
+            health.refactors_today.complexity_reduced +=
+                proposal.diff_summary.lines_removed as f64 / 100.0;
+        } else {
+            // Assisted: branch created and files written, left uncommitted.
+            proposal.status = ProposalStatus::Accepted;
+            proposal.pr_body = Some(crate::pr::render_pr_body(proposal, "", branch, ""));
+            proposal.timeline.push(TimelineEvent {
+                at: now(),
+                message: format!("Branch {branch} prepared (assisted mode)"),
+            });
         }
         Ok(())
     }
