@@ -190,7 +190,7 @@ impl Daemon {
                 .update_proposal(&proposal.id, |p| *p = proposal.clone())
                 .await;
 
-            let _ = self.store.append_proposal(&proposal);
+            let _ = self.store.append_proposal_async(&proposal).await;
             let health_snapshot = self.project_health.read().await.clone();
             let _ = self.store.append_health_async(&health_snapshot).await;
         }
@@ -221,7 +221,7 @@ impl Daemon {
             proposal.confidence = confidence::score(&module, &proposal, &report);
             proposal.status = ProposalStatus::Detected;
             self.queue.enqueue_proposal(proposal.clone()).await;
-            let _ = self.store.append_proposal(&proposal);
+            let _ = self.store.append_proposal_async(&proposal).await;
             produced.push(proposal);
         }
         Ok(produced)
