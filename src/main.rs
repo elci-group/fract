@@ -124,3 +124,117 @@ fn load_config(path: Option<PathBuf>) -> Result<Config> {
         ))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir() -> PathBuf {
+        // Rust runs the test binary's tests in parallel threads within one
+        // process, so a pid-only name would collide. Mix in a per-call counter.
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("fract-main-test-{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn cli_args(format: Option<&str>, color: Option<&str>, verbosity: i32) -> Args {
+        Args {
+            config: None,
+            command: Command::Run,
+            format: format.map(str::to_string),
+            color: color.map(str::to_string),
+            verbosity,
+        }
+    }
+
+    #[test]
+    fn resolve_output_prefers_cli_flags_over_config() {
+        let cfg = Config::default_for(PathBuf::from("/tmp/example"));
+        let args = cli_args(Some("json"), Some("never"), 1);
+        let (format, color, verbosity) = resolve_output(&args, &cfg).unwrap();
+        assert_eq!(format, OutputFormat::Json);
+        assert_eq!(color, ColorChoice::Never);
+        assert_eq!(verbosity, Verbosity::Verbose);
+    }
+
+    #[test]
+    fn resolve_output_falls_back_to_config_values() {
+        let mut cfg = Config::default_for(PathBuf::from("/tmp/example"));
+        cfg.output.format = "sarif".to_string();
+        cfg.output.color = "always".to_string();
+        cfg.output.verbosity = "debug".to_string();
+        let args = cli_args(None, None, 0);
+        let (format, color, verbosity) = resolve_output(&args, &cfg).unwrap();
+        assert_eq!(format, OutputFormat::Sarif);
+        assert_eq!(color, ColorChoice::Always);
+        assert_eq!(verbosity, Verbosity::Debug);
+    }
+
+    #[test]
+    fn resolve_output_quiet_flag_maps_to_quiet() {
+        let cfg = Config::default_for(PathBuf::from("/tmp/example"));
+        let args = cli_args(None, None, -2);
+        let (_, _, verbosity) = resolve_output(&args, &cfg).unwrap();
+        assert_eq!(verbosity, Verbosity::Quiet);
+    }
+
+    #[test]
+    fn resolve_output_unknown_format_is_a_clear_error() {
+        let cfg = Config::default_for(PathBuf::from("/tmp/example"));
+        let args = cli_args(Some("bogus"), None, 0);
+        let err = resolve_output(&args, &cfg).unwrap_err();
+        assert!(
+            err.to_string().contains("unknown output format: bogus"),
+            "err: {err}"
+        );
+    }
+
+    #[test]
+    fn resolve_output_unknown_color_is_a_clear_error() {
+        let cfg = Config::default_for(PathBuf::from("/tmp/example"));
+        let args = cli_args(None, Some("purple"), 0);
+        let err = resolve_output(&args, &cfg).unwrap_err();
+        assert!(
+            err.to_string().contains("unknown color mode: purple"),
+            "err: {err}"
+        );
+    }
+
+    #[test]
+    fn resolve_output_unknown_config_verbosity_defaults_to_normal() {
+        let mut cfg = Config::default_for(PathBuf::from("/tmp/example"));
+        cfg.output.verbosity = "chatty".to_string();
+        let args = cli_args(None, None, 0);
+        let (_, _, verbosity) = resolve_output(&args, &cfg).unwrap();
+        assert_eq!(verbosity, Verbosity::Normal);
+    }
+
+    #[test]
+    fn load_config_reads_explicit_path() {
+        let dir = temp_dir();
+        let path = dir.join("fract.toml");
+        std::fs::write(
+            &path,
+            format!(
+                "project_root = \"{}\"\nmode = \"autonomous\"\n",
+                dir.display()
+            ),
+        )
+        .unwrap();
+        let cfg = load_config(Some(path)).unwrap();
+        assert_eq!(cfg.project_root, dir.canonicalize().unwrap());
+        assert_eq!(cfg.mode.to_string(), "autonomous");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_config_missing_explicit_path_errors() {
+        let dir = temp_dir();
+        assert!(load_config(Some(dir.join("missing.toml"))).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

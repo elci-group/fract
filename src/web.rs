@@ -326,4 +326,156 @@ mod tests {
         assert!(s.contains(SCHEMA));
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn paginate_limit_is_clamped_to_500() {
+        let v: Vec<i32> = (0..1_000).collect();
+        let (total, page) = paginate(
+            v,
+            &Pagination {
+                limit: Some(10_000),
+                offset: None,
+            },
+        );
+        assert_eq!(total, 1_000);
+        assert_eq!(page.len(), 500);
+    }
+
+    #[test]
+    fn paginate_zero_limit_is_clamped_to_one() {
+        let (total, page) = paginate(
+            vec![7, 8, 9],
+            &Pagination {
+                limit: Some(0),
+                offset: None,
+            },
+        );
+        assert_eq!(total, 3);
+        assert_eq!(page, vec![7]);
+    }
+
+    #[test]
+    fn paginate_defaults_to_first_50() {
+        let v: Vec<i32> = (0..120).collect();
+        let (total, page) = paginate(v, &Pagination::default());
+        assert_eq!(total, 120);
+        assert_eq!(page.len(), 50);
+        assert_eq!(page[0], 0);
+    }
+
+    #[test]
+    fn content_type_maps_known_extensions() {
+        for (name, expected) in [
+            ("a.html", "text/html; charset=utf-8"),
+            ("a.js", "application/javascript; charset=utf-8"),
+            ("a.css", "text/css; charset=utf-8"),
+            ("a.svg", "image/svg+xml"),
+            ("a.png", "image/png"),
+            ("a.json", "application/json"),
+            ("a.wasm", "application/wasm"),
+            ("a.bin", "application/octet-stream"),
+            ("noext", "application/octet-stream"),
+        ] {
+            assert_eq!(
+                content_type(std::path::Path::new(name)),
+                expected,
+                "name {name}"
+            );
+        }
+    }
+
+    /// Temp project with one high-entropy module so `scan` yields a proposal.
+    fn high_entropy_project() -> PathBuf {
+        let dir = temp_project();
+        let mut big = String::new();
+        for i in 0..60 {
+            use std::fmt::Write as _;
+            let _ = writeln!(
+                big,
+                "pub fn f{i}(x: i32) -> i32 {{ if x > 0 {{ if x > 1 {{ if x > 2 {{ x }} else {{ 0 }} }} else {{ 0 }} }} else {{ -1 }}"
+            );
+        }
+        std::fs::write(dir.join("src/big.rs"), &big).unwrap();
+        dir
+    }
+
+    /// Config whose entropy threshold any indexed module clears, so `scan`
+    /// deterministically produces proposals regardless of scoring drift.
+    fn permissive_config(root: PathBuf) -> Config {
+        let mut cfg = Config::default_for(root);
+        cfg.entropy_threshold = 0.1;
+        cfg
+    }
+
+    #[tokio::test]
+    async fn proposals_handler_envelope_lists_proposals() {
+        let root = high_entropy_project();
+        let daemon = Arc::new(Daemon::new(permissive_config(root.clone())));
+        daemon.scan().await.unwrap();
+        let expected = daemon.proposals().await.len();
+        assert!(expected > 0, "scan should produce a proposal");
+        let Json(v) = proposals_handler(State(daemon), Query(Pagination::default())).await;
+        let s = v.to_string();
+        assert!(s.contains("\"proposals\""), "envelope: {s}");
+        assert!(
+            s.contains(&format!("\"total\":{expected}")),
+            "envelope: {s}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn approve_handler_returns_404_for_unknown_id() {
+        let root = temp_project();
+        let daemon = Arc::new(Daemon::new(Config::default_for(root.clone())));
+        let result = approve_handler(State(daemon), AxumPath("nope".to_string())).await;
+        assert_eq!(result.unwrap_err(), StatusCode::NOT_FOUND);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn approve_handler_acknowledges_known_proposal() {
+        let root = high_entropy_project();
+        let daemon = Arc::new(Daemon::new(permissive_config(root.clone())));
+        daemon.scan().await.unwrap();
+        let proposals = daemon.proposals().await;
+        assert!(!proposals.is_empty(), "scan should produce a proposal");
+        let id = proposals[0].id.clone();
+        let Json(v) = approve_handler(State(daemon), AxumPath(id.clone()))
+            .await
+            .unwrap();
+        let s = v.to_string();
+        assert!(s.contains("\"status\":\"approved\""), "body: {s}");
+        assert!(s.contains(&id), "body: {s}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn events_handler_envelope_lists_recent_events() {
+        let root = temp_project();
+        let daemon = Arc::new(Daemon::new(Config::default_for(root.clone())));
+        daemon
+            .event_bus()
+            .emit(crate::EventKind::FileSaved, None)
+            .await;
+        let Json(v) = events_handler(State(daemon), Query(Pagination::default())).await;
+        let s = v.to_string();
+        assert!(s.contains("\"events\""), "envelope: {s}");
+        assert!(s.contains("\"total\":1"), "envelope: {s}");
+        assert!(s.contains("FileSaved"), "envelope: {s}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn config_handler_reports_daemon_config() {
+        let root = temp_project();
+        let daemon = Arc::new(Daemon::new(Config::default_for(root.clone())));
+        let Json(v) = config_handler(State(daemon)).await;
+        let s = v.to_string();
+        assert!(s.contains("\"mode\":\"passive\""), "body: {s}");
+        assert!(s.contains("\"entropy_threshold\":0.82"), "body: {s}");
+        assert!(s.contains("\"bind\":\"127.0.0.1:7345\""), "body: {s}");
+        assert!(s.contains("\"format\":\"human\""), "body: {s}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

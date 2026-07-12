@@ -105,3 +105,67 @@ impl std::fmt::Display for Language {
         f.write_str(s)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Health, Language};
+    use std::path::Path;
+
+    #[test]
+    fn health_from_entropy_band_boundaries() {
+        // Boundary values land in the higher band: 0.4 is Healthy, not Excellent.
+        assert_eq!(Health::from_entropy(0.0), Health::Excellent);
+        assert_eq!(Health::from_entropy(0.3999), Health::Excellent);
+        assert_eq!(Health::from_entropy(0.4), Health::Healthy);
+        assert_eq!(Health::from_entropy(0.6499), Health::Healthy);
+        assert_eq!(Health::from_entropy(0.65), Health::Warning);
+        assert_eq!(Health::from_entropy(0.8199), Health::Warning);
+        assert_eq!(Health::from_entropy(0.82), Health::Critical);
+        assert_eq!(Health::from_entropy(1.0), Health::Critical);
+    }
+
+    #[test]
+    fn health_labels_match_display() {
+        for (health, label) in [
+            (Health::Excellent, "Excellent"),
+            (Health::Healthy, "Healthy"),
+            (Health::Warning, "Warning"),
+            (Health::Critical, "Critical"),
+        ] {
+            assert_eq!(health.label(), label);
+            assert_eq!(health.to_string(), label);
+        }
+    }
+
+    #[test]
+    fn language_from_path_known_extensions() {
+        assert_eq!(Language::from_path(Path::new("a.rs")), Language::Rust);
+        assert_eq!(Language::from_path(Path::new("a.py")), Language::Python);
+        assert_eq!(
+            Language::from_path(Path::new("dir/b.ts")),
+            Language::TypeScript
+        );
+        assert_eq!(Language::from_path(Path::new("a.js")), Language::JavaScript);
+    }
+
+    #[test]
+    fn language_from_path_unknown_or_missing_extension() {
+        assert_eq!(Language::from_path(Path::new("a.go")), Language::Other);
+        assert_eq!(Language::from_path(Path::new("Makefile")), Language::Other);
+        // Detection is case-sensitive: an uppercase extension is not Rust.
+        assert_eq!(Language::from_path(Path::new("a.RS")), Language::Other);
+    }
+
+    #[test]
+    fn language_display_labels() {
+        for (language, label) in [
+            (Language::Rust, "rust"),
+            (Language::Python, "python"),
+            (Language::TypeScript, "typescript"),
+            (Language::JavaScript, "javascript"),
+            (Language::Other, "other"),
+        ] {
+            assert_eq!(language.to_string(), label);
+        }
+    }
+}

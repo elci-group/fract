@@ -182,3 +182,172 @@ pub async fn execute_proposal(
 
     Ok(output)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Health, Language, RefactorKind};
+    use std::time::SystemTime;
+
+    fn temp_dir() -> PathBuf {
+        // Rust runs the test binary's tests in parallel threads within one
+        // process, so a pid-only name would collide. Mix in a per-call counter.
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("fract-refactor-test-{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn module_fixture(path: &str, language: Language) -> Module {
+        Module {
+            path: PathBuf::from(path),
+            language,
+            lines: 100,
+            functions: 10,
+            cyclomatic_complexity: 5,
+            public_api_size: 4,
+            fan_out: 2,
+            fan_in: 1,
+            duplicates: 0,
+            edit_frequency: 0.0,
+            confidence: None,
+            churn: 0,
+            test_coverage: 0.0,
+            entropy: 0.9,
+            health: Health::from_entropy(0.9),
+            last_modified: SystemTime::UNIX_EPOCH,
+        }
+    }
+
+    fn context_for(module: &Module, source: &str) -> RefactorContext {
+        RefactorContext {
+            module: module.clone(),
+            source: source.to_string(),
+            imports: Vec::new(),
+            exports: Vec::new(),
+            dependents: Vec::new(),
+            project_conventions: "Default Rust conventions".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn mock_engine_splits_rust_module_into_public_and_internal() {
+        let source = "// header comment\npub fn api() {}\nfn helper() {}\n";
+        let module = module_fixture("src/lib.rs", Language::Rust);
+        let output = MockRefactorEngine
+            .refactor(context_for(&module, source))
+            .await
+            .unwrap();
+        assert_eq!(output.files.len(), 2);
+        let (public_path, public_body) = &output.files[0];
+        assert_eq!(public_path, &PathBuf::from("src/lib.rs"));
+        assert!(public_body.contains("pub fn api()"));
+        assert!(public_body.contains("// header comment"));
+        assert!(!public_body.contains("fn helper()"));
+        let (internal_path, internal_body) = &output.files[1];
+        assert_eq!(internal_path, &PathBuf::from("lib_internal.rs"));
+        assert!(internal_body.contains("fn helper()"));
+        assert_eq!(output.diff_summary.files_added, 1);
+        assert_eq!(output.diff_summary.files_modified, 1);
+        assert_eq!(output.migration_notes.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn mock_engine_cleans_non_rust_module_in_place() {
+        let source = "def a():\n    pass\n\n\ndef b():\n    pass\n";
+        let module = module_fixture("pkg/mod.py", Language::Python);
+        let output = MockRefactorEngine
+            .refactor(context_for(&module, source))
+            .await
+            .unwrap();
+        assert_eq!(output.files.len(), 1);
+        let (path, body) = &output.files[0];
+        assert_eq!(path, &PathBuf::from("pkg/mod.py"));
+        // Blank lines are dropped; real lines survive in order.
+        assert!(!body.contains("\n\n"));
+        assert_eq!(body, "def a():\n    pass\ndef b():\n    pass");
+        assert_eq!(output.diff_summary.files_added, 0);
+    }
+
+    #[test]
+    fn build_context_extracts_imports_exports_and_default_conventions() {
+        let dir = temp_dir();
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(
+            dir.join("src/lib.rs"),
+            "use std::io;\nimport foo from 'x';\nfrom y import z\npub fn api() {}\nexport const C: i32 = 1;\nfn private_fn() {}\n",
+        )
+        .unwrap();
+        let module = module_fixture("src/lib.rs", Language::Rust);
+        let ctx = build_context(&dir, &module).unwrap();
+        assert_eq!(ctx.imports.len(), 3);
+        assert!(ctx.imports[0].starts_with("use std::io"));
+        assert_eq!(ctx.exports.len(), 2);
+        assert!(ctx.exports[0].starts_with("pub fn api"));
+        assert_eq!(ctx.project_conventions, "Default Rust conventions");
+        assert!(ctx.dependents.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn build_context_reads_rustfmt_toml_conventions() {
+        let dir = temp_dir();
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/lib.rs"), "pub fn a() {}\n").unwrap();
+        std::fs::write(dir.join("rustfmt.toml"), "max_width = 80\n").unwrap();
+        let module = module_fixture("src/lib.rs", Language::Rust);
+        let ctx = build_context(&dir, &module).unwrap();
+        assert_eq!(ctx.project_conventions, "max_width = 80\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn build_context_reads_dot_rustfmt_toml_conventions() {
+        let dir = temp_dir();
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/lib.rs"), "pub fn a() {}\n").unwrap();
+        std::fs::write(dir.join(".rustfmt.toml"), "hard_tabs = true\n").unwrap();
+        let module = module_fixture("src/lib.rs", Language::Rust);
+        let ctx = build_context(&dir, &module).unwrap();
+        assert_eq!(ctx.project_conventions, "hard_tabs = true\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn build_context_missing_source_file_errors() {
+        let dir = temp_dir();
+        let module = module_fixture("src/missing.rs", Language::Rust);
+        assert!(build_context(&dir, &module).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn execute_proposal_updates_status_timeline_and_changed_files() {
+        let dir = temp_dir();
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/lib.rs"), "pub fn api() {}\nfn helper() {}\n").unwrap();
+        let module = module_fixture("src/lib.rs", Language::Rust);
+        let mut proposal = crate::queue::proposal_for(&module, RefactorKind::SplitModule);
+        let output = execute_proposal(&MockRefactorEngine, &dir, &mut proposal, &module)
+            .await
+            .unwrap();
+        assert_eq!(proposal.status, ProposalStatus::Refactoring);
+        // One detection event from `proposal_for` plus three execution events.
+        assert_eq!(proposal.timeline.len(), 4);
+        assert!(proposal.timeline[1].message.contains("context"));
+        assert!(proposal.timeline[3].message.contains("2 file(s)"));
+        assert_eq!(proposal.changed_files.len(), output.files.len());
+        assert_eq!(proposal.changed_files[0].path, output.files[0].0);
+        assert_eq!(proposal.changed_files[0].content, output.files[0].1);
+        assert_eq!(proposal.migration_notes, output.migration_notes);
+        assert_eq!(
+            proposal.diff_summary.lines_removed,
+            output.diff_summary.lines_removed
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

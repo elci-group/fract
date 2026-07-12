@@ -317,3 +317,172 @@ fn copy_dir_all_sync(src: &Path, dst: &Path) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Health, Language};
+    use std::time::SystemTime;
+
+    fn temp_dir() -> PathBuf {
+        // Rust runs the test binary's tests in parallel threads within one
+        // process, so a pid-only name would collide. Mix in a per-call counter.
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("fract-pipeline-test-{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn module(path: &str) -> Module {
+        Module {
+            path: PathBuf::from(path),
+            language: Language::Rust,
+            lines: 0,
+            functions: 0,
+            cyclomatic_complexity: 0,
+            public_api_size: 0,
+            fan_out: 0,
+            fan_in: 0,
+            duplicates: 0,
+            edit_frequency: 0.0,
+            confidence: None,
+            churn: 0,
+            test_coverage: 0.0,
+            entropy: 0.9,
+            health: Health::from_entropy(0.9),
+            last_modified: SystemTime::UNIX_EPOCH,
+        }
+    }
+
+    #[test]
+    fn classify_kind_prefers_split_for_oversized_modules() {
+        let mut oversized_lines = module("src/big.rs");
+        oversized_lines.lines = 1_501;
+        assert_eq!(classify_kind(&oversized_lines), RefactorKind::SplitModule);
+
+        let mut many_functions = module("src/many.rs");
+        many_functions.functions = 41;
+        assert_eq!(classify_kind(&many_functions), RefactorKind::SplitModule);
+    }
+
+    #[test]
+    fn classify_kind_boundary_values_fall_through() {
+        // Exact thresholds are NOT over the limit: each boundary value must
+        // fall through to the next rule, ending at ExtractFunction.
+        let mut edge = module("src/edge.rs");
+        edge.lines = 1_500;
+        edge.functions = 40;
+        edge.duplicates = 10;
+        edge.public_api_size = 30;
+        edge.fan_out = 15;
+        assert_eq!(classify_kind(&edge), RefactorKind::ExtractFunction);
+    }
+
+    #[test]
+    fn classify_kind_picks_first_matching_rule() {
+        let mut duplicated = module("src/dup.rs");
+        duplicated.duplicates = 11;
+        assert_eq!(classify_kind(&duplicated), RefactorKind::RemoveDuplication);
+
+        let mut wide_api = module("src/api.rs");
+        wide_api.public_api_size = 31;
+        assert_eq!(classify_kind(&wide_api), RefactorKind::ReduceSurface);
+
+        let mut tangled = module("src/fan.rs");
+        tangled.fan_out = 16;
+        assert_eq!(classify_kind(&tangled), RefactorKind::ReorderDependencies);
+
+        assert_eq!(
+            classify_kind(&module("src/plain.rs")),
+            RefactorKind::ExtractFunction
+        );
+    }
+
+    #[test]
+    fn classify_kind_split_beats_duplication_when_both_match() {
+        let mut both = module("src/both.rs");
+        both.functions = 41;
+        both.duplicates = 99;
+        assert_eq!(classify_kind(&both), RefactorKind::SplitModule);
+    }
+
+    #[tokio::test]
+    async fn detect_proposals_gates_on_entropy_threshold() {
+        let root = temp_dir();
+        let daemon = Arc::new(Daemon::new(crate::config::Config::default_for(
+            root.clone(),
+        )));
+        let threshold = daemon.config().entropy_threshold;
+        {
+            let mut low = module("src/low.rs");
+            low.entropy = threshold - 0.01;
+            let mut edge = module("src/edge.rs");
+            edge.entropy = threshold;
+            let mut high = module("src/high.rs");
+            high.entropy = 0.99;
+            let mut modules = daemon.modules.write().await;
+            *modules = vec![low, edge, high];
+        }
+        let produced = daemon.detect_proposals().await.unwrap();
+        let paths: Vec<_> = produced.iter().map(|p| p.module.clone()).collect();
+        assert_eq!(
+            paths,
+            vec![PathBuf::from("src/edge.rs"), PathBuf::from("src/high.rs")]
+        );
+        assert!(produced
+            .iter()
+            .all(|p| p.status == ProposalStatus::Detected));
+        assert!(produced.iter().all(|p| p.confidence > 0.0));
+        // Enqueued copies carry the queue-entry status.
+        let queued = daemon.proposals().await;
+        assert_eq!(queued.len(), 2);
+        assert!(queued.iter().all(|p| p.status == ProposalStatus::Queued));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn detect_proposals_empty_when_nothing_exceeds_threshold() {
+        let root = temp_dir();
+        let daemon = Arc::new(Daemon::new(crate::config::Config::default_for(
+            root.clone(),
+        )));
+        {
+            let mut calm = module("src/calm.rs");
+            calm.entropy = 0.1;
+            let mut modules = daemon.modules.write().await;
+            *modules = vec![calm];
+        }
+        let produced = daemon.detect_proposals().await.unwrap();
+        assert!(produced.is_empty());
+        assert!(daemon.proposals().await.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn copy_dir_all_sync_copies_tree_and_skips_dot_git() {
+        let src = temp_dir();
+        std::fs::create_dir_all(src.join("src")).unwrap();
+        std::fs::create_dir_all(src.join(".git/objects")).unwrap();
+        std::fs::write(src.join("src/lib.rs"), "pub fn a() {}\n").unwrap();
+        std::fs::write(src.join(".git/objects/blob"), "gitdata").unwrap();
+        std::fs::write(src.join("Cargo.toml"), "[package]\n").unwrap();
+
+        let dst = temp_dir();
+        copy_dir_all_sync(&src, &dst).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dst.join("src/lib.rs")).unwrap(),
+            "pub fn a() {}\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dst.join("Cargo.toml")).unwrap(),
+            "[package]\n"
+        );
+        assert!(!dst.join(".git").exists());
+        let _ = std::fs::remove_dir_all(&src);
+        let _ = std::fs::remove_dir_all(&dst);
+    }
+}

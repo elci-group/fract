@@ -350,3 +350,203 @@ impl ser::SerializeStructVariant for ValueMap {
         ser::SerializeMap::end(self)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    // Explicit import: the `Serialize` *derive* lives at `serde::Serialize`,
+    // while `super::*` only re-exports the `serde::ser::Serialize` trait.
+    use serde::Serialize;
+
+    #[test]
+    fn integers_of_all_widths_become_numbers() {
+        assert_eq!(to_value(5i8), Value::Number(5.0));
+        assert_eq!(to_value(5i16), Value::Number(5.0));
+        assert_eq!(to_value(5i32), Value::Number(5.0));
+        assert_eq!(to_value(5i64), Value::Number(5.0));
+        assert_eq!(to_value(5i128), Value::Number(5.0));
+        assert_eq!(to_value(5u8), Value::Number(5.0));
+        assert_eq!(to_value(5u16), Value::Number(5.0));
+        assert_eq!(to_value(5u32), Value::Number(5.0));
+        assert_eq!(to_value(5u64), Value::Number(5.0));
+        assert_eq!(to_value(5u128), Value::Number(5.0));
+    }
+
+    #[test]
+    fn floats_become_numbers() {
+        assert_eq!(to_value(0.5f32), Value::Number(0.5));
+        assert_eq!(to_value(-1.25f64), Value::Number(-1.25));
+        assert_eq!(to_value(1.5f64).to_string(), "1.5");
+    }
+
+    #[test]
+    fn char_and_str_become_strings() {
+        assert_eq!(to_value('x'), Value::String("x".to_string()));
+        assert_eq!(to_value("hello"), Value::String("hello".to_string()));
+    }
+
+    #[test]
+    fn bytes_become_number_array() {
+        struct Raw(&'static [u8]);
+        impl Serialize for Raw {
+            fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.serialize_bytes(self.0)
+            }
+        }
+        assert_eq!(
+            to_value(Raw(&[1, 2, 255])),
+            Value::Array(vec![
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(255.0),
+            ])
+        );
+    }
+
+    #[test]
+    fn unit_like_values_become_null() {
+        #[derive(Serialize)]
+        struct Marker;
+        assert_eq!(to_value(()), Value::Null);
+        assert_eq!(to_value(Marker), Value::Null);
+    }
+
+    #[test]
+    fn unit_variant_becomes_variant_name_string() {
+        #[derive(Serialize)]
+        enum Kind {
+            Alpha,
+            Beta,
+        }
+        assert_eq!(to_value(Kind::Alpha), Value::String("Alpha".to_string()));
+        assert_eq!(to_value(Kind::Beta).to_string(), "\"Beta\"");
+    }
+
+    #[test]
+    fn newtype_struct_is_transparent() {
+        #[derive(Serialize)]
+        struct Wrapper(u32);
+        assert_eq!(to_value(Wrapper(7)), Value::Number(7.0));
+    }
+
+    #[test]
+    fn newtype_variant_wraps_value_in_named_object() {
+        #[derive(Serialize)]
+        enum Kind {
+            One(u32),
+        }
+        let mut expected = Value::object();
+        expected.insert("One", Value::Number(3.0));
+        assert_eq!(to_value(Kind::One(3)), expected);
+    }
+
+    #[test]
+    fn tuple_and_tuple_struct_become_arrays() {
+        #[derive(Serialize)]
+        struct Pair(u32, u32);
+        assert_eq!(
+            to_value(Pair(1, 2)),
+            Value::Array(vec![Value::Number(1.0), Value::Number(2.0)])
+        );
+        assert_eq!(
+            to_value((1u32, "two")),
+            Value::Array(vec![Value::Number(1.0), Value::String("two".to_string()),])
+        );
+    }
+
+    #[test]
+    fn tuple_variant_becomes_named_array() {
+        #[derive(Serialize)]
+        enum Kind {
+            Pair(u32, u32),
+        }
+        let mut expected = Value::object();
+        expected.insert(
+            "Pair",
+            Value::Array(vec![Value::Number(4.0), Value::Number(5.0)]),
+        );
+        assert_eq!(to_value(Kind::Pair(4, 5)), expected);
+    }
+
+    #[test]
+    fn struct_variant_becomes_named_object() {
+        #[derive(Serialize)]
+        enum Kind {
+            Point { x: u32, y: u32 },
+        }
+        let mut inner = Value::object();
+        inner.insert("x", Value::Number(1.0));
+        inner.insert("y", Value::Number(2.0));
+        let mut expected = Value::object();
+        expected.insert("Point", inner);
+        assert_eq!(to_value(Kind::Point { x: 1, y: 2 }), expected);
+    }
+
+    #[test]
+    fn struct_fields_preserve_declaration_order() {
+        #[derive(Serialize)]
+        struct Record {
+            first: u32,
+            second: bool,
+        }
+        assert_eq!(
+            to_value(Record {
+                first: 1,
+                second: true,
+            })
+            .to_string(),
+            "{\"first\":1,\"second\":true}"
+        );
+    }
+
+    #[test]
+    fn nested_structs_and_sequences_render_as_expected() {
+        #[derive(Serialize)]
+        struct Inner {
+            name: String,
+        }
+        #[derive(Serialize)]
+        struct Outer {
+            inner: Inner,
+            items: Vec<u32>,
+            maybe: Option<u32>,
+        }
+        let value = to_value(Outer {
+            inner: Inner {
+                name: "a".to_string(),
+            },
+            items: vec![1, 2],
+            maybe: None,
+        });
+        assert_eq!(
+            value.to_string(),
+            "{\"inner\":{\"name\":\"a\"},\"items\":[1,2],\"maybe\":null}"
+        );
+    }
+
+    #[test]
+    fn map_with_string_keys_becomes_object() {
+        let mut map = std::collections::BTreeMap::new();
+        map.insert("a".to_string(), 1u32);
+        map.insert("b".to_string(), 2u32);
+        assert_eq!(to_value(map).to_string(), "{\"a\":1,\"b\":2}");
+    }
+
+    #[test]
+    fn map_with_non_string_keys_is_an_error() {
+        let mut map = std::collections::HashMap::new();
+        map.insert(1u32, 2u32);
+        // `to_value` would panic on this; call the serializer directly to
+        // observe the error instead.
+        let result = map.serialize(ValueSerializer);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn escapes_and_number_formatting_hold_through_to_value() {
+        let value = to_value("quote:\" newline:\n tab:\t");
+        assert_eq!(value.to_string(), "\"quote:\\\" newline:\\n tab:\\t\"");
+        assert_eq!(to_value(42i64).to_string(), "42");
+        assert_eq!(to_value(-7i32).to_string(), "-7");
+    }
+}

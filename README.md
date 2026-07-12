@@ -57,6 +57,13 @@ cargo build --release
 # binary at target/release/fract
 ```
 
+To install onto your `PATH` instead:
+
+```bash
+cargo install --path .
+# installs `fract` to ~/.cargo/bin
+```
+
 ## Quick start
 
 ```bash

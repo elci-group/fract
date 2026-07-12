@@ -1,6 +1,6 @@
 [package]
 name = "fract"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 authors = ["Fract Contributors"]
 description = "Autonomous architectural maintenance daemon for Rust, Python, TypeScript, and JavaScript projects"

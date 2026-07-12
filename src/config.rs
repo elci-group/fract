@@ -204,3 +204,129 @@ pub fn default_ignore_patterns() -> Vec<String> {
         "dist/**".to_string(),
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir() -> PathBuf {
+        // Rust runs the test binary's tests in parallel threads within one
+        // process, so a pid-only name would collide. Mix in a per-call counter.
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("fract-config-test-{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_config(dir: &std::path::Path, body: &str) -> PathBuf {
+        let path = dir.join("fract.toml");
+        std::fs::write(&path, body).unwrap();
+        path
+    }
+
+    #[test]
+    fn load_reads_toml_and_canonicalizes_root() {
+        let dir = temp_dir();
+        let body = format!(
+            "project_root = \"{}\"\nmode = \"assisted\"\nentropy_threshold = 0.5\nquiet_period_secs = 30\n",
+            dir.display()
+        );
+        let path = write_config(&dir, &body);
+        let cfg = Config::load(&path).unwrap();
+        assert_eq!(cfg.project_root, dir.canonicalize().unwrap());
+        assert_eq!(cfg.mode, Mode::Assisted);
+        assert!((cfg.entropy_threshold - 0.5).abs() < f64::EPSILON);
+        assert_eq!(cfg.quiet_period_secs, 30);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_applies_defaults_for_missing_fields() {
+        let dir = temp_dir();
+        let body = format!("project_root = \"{}\"\n", dir.display());
+        let path = write_config(&dir, &body);
+        let cfg = Config::load(&path).unwrap();
+        assert_eq!(cfg.mode, Mode::Passive);
+        assert!((cfg.entropy_threshold - 0.82).abs() < f64::EPSILON);
+        assert!((cfg.confidence_threshold - 0.90).abs() < f64::EPSILON);
+        assert_eq!(cfg.quiet_period_secs, 120);
+        assert_eq!(cfg.bind, "127.0.0.1:7345");
+        assert_eq!(cfg.watch_patterns.len(), 4);
+        assert_eq!(cfg.ignore_patterns, default_ignore_patterns());
+        assert_eq!(cfg.output.format, "human");
+        assert_eq!(cfg.output.color, "auto");
+        assert_eq!(cfg.output.verbosity, "normal");
+        assert_eq!(cfg.output.log_format, "pretty");
+        assert_eq!(cfg.output.max_findings, 0);
+        // With no `[llm]` table at all, serde falls back to `LlmConfig`'s
+        // derived `Default` (empty strings), not the field-level defaults;
+        // `build_engine` treats an empty provider as "mock".
+        assert!(cfg.llm.provider.is_empty());
+        assert!(cfg.llm.model.is_empty());
+        assert_eq!(cfg.llm.max_tokens, 0);
+        assert!(cfg.llm.endpoint.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_applies_llm_field_defaults_when_table_present() {
+        let dir = temp_dir();
+        let body = format!("project_root = \"{}\"\n[llm]\n", dir.display());
+        let path = write_config(&dir, &body);
+        let cfg = Config::load(&path).unwrap();
+        // Field-level `serde(default = ...)` kicks in once the table exists.
+        assert_eq!(cfg.llm.provider, "mock");
+        assert_eq!(cfg.llm.model, "gpt-oss-120b");
+        assert_eq!(cfg.llm.max_tokens, 32_768);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_rejects_malformed_toml() {
+        let dir = temp_dir();
+        let path = write_config(&dir, "project_root = \n");
+        assert!(Config::load(&path).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_missing_file_errors() {
+        let dir = temp_dir();
+        assert!(Config::load(dir.join("does-not-exist.toml")).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_rejects_uncanonicalizable_root() {
+        let dir = temp_dir();
+        let path = write_config(&dir, "project_root = \"/no/such/dir/fract-xyz-123\"\n");
+        assert!(Config::load(&path).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn default_for_populates_all_fields() {
+        let cfg = Config::default_for(PathBuf::from("/tmp/example"));
+        assert_eq!(cfg.project_root, PathBuf::from("/tmp/example"));
+        assert_eq!(cfg.mode, Mode::Passive);
+        assert!((cfg.entropy_threshold - 0.82).abs() < f64::EPSILON);
+        assert!((cfg.confidence_threshold - 0.90).abs() < f64::EPSILON);
+        assert_eq!(cfg.quiet_period_secs, 120);
+        assert_eq!(cfg.bind, "127.0.0.1:7345");
+        assert_eq!(cfg.watch_patterns.len(), 4);
+        // `default_for` uses the derived `LlmConfig::default` (empty provider;
+        // `build_engine` maps that to the mock engine).
+        assert!(cfg.llm.provider.is_empty());
+    }
+
+    #[test]
+    fn mode_display_labels() {
+        assert_eq!(Mode::Passive.to_string(), "passive");
+        assert_eq!(Mode::Assisted.to_string(), "assisted");
+        assert_eq!(Mode::Autonomous.to_string(), "autonomous");
+    }
+}

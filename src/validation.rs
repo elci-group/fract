@@ -217,7 +217,9 @@ async fn git_show_head(root: &Path, rel: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Language;
+    use crate::{ChangedFile, DiffSummary, Language, RefactorKind};
+    use std::path::PathBuf;
+    use std::time::SystemTime;
 
     #[test]
     fn rust_removal_detected() {
@@ -278,5 +280,182 @@ let s = "pub fn ghost()";
         let after = "pub fn keep() {}\n";
         let removed = removed_public_symbols(before, after, Language::Rust);
         assert_eq!(removed, vec!["Foo".to_string()]);
+    }
+
+    fn temp_dir() -> PathBuf {
+        // Rust runs the test binary's tests in parallel threads within one
+        // process, so a pid-only name would collide. Mix in a per-call counter.
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("fract-validation-test-{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn proposal_fixture(module: &str, changed_files: Vec<ChangedFile>) -> Proposal {
+        Proposal {
+            id: "test-proposal".to_string(),
+            created_at: SystemTime::UNIX_EPOCH,
+            module: PathBuf::from(module),
+            kind: RefactorKind::ExtractFunction,
+            confidence: 0.0,
+            status: ProposalStatus::Detected,
+            validation: None,
+            diff_summary: DiffSummary::default(),
+            migration_notes: Vec::new(),
+            changed_files,
+            pr_body: None,
+            timeline: Vec::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn api_check_passes_when_changed_files_keep_public_api() {
+        let dir = temp_dir();
+        let proposal = proposal_fixture(
+            "src/lib.rs",
+            vec![ChangedFile {
+                path: PathBuf::from("src/lib.rs"),
+                content: "pub fn a() {}\npub fn b() {}\n".to_string(),
+            }],
+        );
+        // No git history under `dir`, so the baseline is empty and nothing can
+        // count as removed.
+        let (compatible, logs) = check_api_compatibility(&dir, &proposal).await;
+        assert!(compatible);
+        assert!(logs.is_empty(), "logs: {logs:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn api_check_skips_unsupported_languages() {
+        let dir = temp_dir();
+        let proposal = proposal_fixture(
+            "notes.txt",
+            vec![ChangedFile {
+                path: PathBuf::from("notes.txt"),
+                content: "free text".to_string(),
+            }],
+        );
+        let (compatible, logs) = check_api_compatibility(&dir, &proposal).await;
+        assert!(compatible);
+        assert_eq!(logs.len(), 1);
+        assert!(logs[0].contains("api check skipped"), "logs: {logs:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn api_check_unreadable_module_is_incompatible() {
+        // Lock in the conservative semantics: a module that cannot be read must
+        // fail validation instead of being waved through.
+        let dir = temp_dir();
+        let proposal = proposal_fixture("src/missing.rs", Vec::new());
+        let (compatible, logs) = check_api_compatibility(&dir, &proposal).await;
+        assert!(!compatible);
+        assert!(logs.is_empty(), "logs: {logs:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn api_check_flags_symbols_removed_since_head() {
+        let dir = temp_dir();
+        // Hand-rolled repo (git2, no shell-out) whose HEAD holds two public fns.
+        let repo = git2::Repository::init(&dir).unwrap();
+        repo.set_head("refs/heads/fract-test").unwrap();
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/lib.rs"), "pub fn a() {}\npub fn b() {}\n").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(std::path::Path::new("src/lib.rs")).unwrap();
+        index.write().unwrap();
+        let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+        let sig = git2::Signature::new(
+            "Fract Test",
+            "test@example.com",
+            &git2::Time::new(1_700_000_000, 0),
+        )
+        .unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "initial", &tree, &[])
+            .unwrap();
+
+        let proposal = proposal_fixture(
+            "src/lib.rs",
+            vec![ChangedFile {
+                path: PathBuf::from("src/lib.rs"),
+                content: "pub fn a() {}\n".to_string(),
+            }],
+        );
+        let (compatible, logs) = check_api_compatibility(&dir, &proposal).await;
+        assert!(!compatible);
+        assert_eq!(logs.len(), 1);
+        assert!(logs[0].contains('b'), "logs: {logs:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Full `validate` pipeline against a real cargo project. This is the one
+    /// intentionally slow test in the module: it runs cargo fmt, clippy, check,
+    /// and test exactly as the daemon does.
+    #[tokio::test]
+    async fn validate_pipeline_accepts_clean_cargo_project() {
+        let dir = temp_dir();
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"fract-validation-scratch\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("src/lib.rs"),
+            "//! Scratch crate for the validation pipeline test.\n\n/// Adds one to the input.\n#[must_use]\npub fn add_one(x: i32) -> i32 {\n    x + 1\n}\n\n#[cfg(test)]\nmod tests {\n    use super::add_one;\n\n    #[test]\n    fn adds_one() {\n        assert_eq!(add_one(1), 2);\n    }\n}\n",
+        )
+        .unwrap();
+
+        let mut proposal = proposal_fixture("src/lib.rs", Vec::new());
+        let report = validate(&dir, &mut proposal).await;
+
+        assert!(report.fmt_ok, "logs: {:?}", report.logs);
+        assert!(report.clippy_ok, "logs: {:?}", report.logs);
+        assert!(report.check_ok, "logs: {:?}", report.logs);
+        assert!(report.test_ok, "logs: {:?}", report.logs);
+        assert!(report.api_compatible, "logs: {:?}", report.logs);
+        assert!(report.all_passed());
+        assert_eq!(proposal.status, ProposalStatus::Accepted);
+        assert!(proposal.validation.is_some());
+        assert!(proposal
+            .timeline
+            .iter()
+            .any(|e| e.message.contains("cargo fmt")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The rejection half of the pipeline: a crate that does not parse fails
+    /// every cargo stage quickly (no codegen), so this stays fast.
+    #[tokio::test]
+    async fn validate_pipeline_rejects_broken_cargo_project() {
+        let dir = temp_dir();
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"fract-validation-broken\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("src/lib.rs"), "pub fn broken( {\n").unwrap();
+
+        let mut proposal = proposal_fixture("src/lib.rs", Vec::new());
+        let report = validate(&dir, &mut proposal).await;
+
+        assert!(!report.all_passed());
+        assert!(!report.fmt_ok);
+        assert!(!report.check_ok);
+        assert!(!report.test_ok);
+        assert!(
+            report.logs.iter().any(|l| l.contains("failed")),
+            "logs: {:?}",
+            report.logs
+        );
+        assert_eq!(proposal.status, ProposalStatus::Rejected);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
