@@ -1,3 +1,6 @@
+//! Journal codec for `Event` records: encode/decode between the in-tree
+//! `json::Value` and the JSONL event lines.
+
 use crate::json::Value;
 use crate::time::{parse_rfc3339, to_rfc3339};
 use crate::{Event, EventKind};

@@ -1,3 +1,7 @@
+//! Journal codec for `ProjectHealth` snapshots: encode/decode health
+//! records (score, health buckets, entropy trend, refactor stats) as
+//! `json::Value`.
+
 use crate::json::Value;
 use crate::time::{parse_rfc3339, to_rfc3339, Timestamp};
 use crate::{ProjectHealth, RefactorStats};

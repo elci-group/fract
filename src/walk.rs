@@ -1,3 +1,8 @@
+//! `walkdir`-free recursive directory walker with gitignore-style ignore
+//! filtering. On Unix, symlink loops are prevented by tracking each
+//! entered directory's `(dev, ino)`; elsewhere symlinks are not followed
+//! at all.
+
 use std::collections::HashSet;
 use std::fs::{self, ReadDir};
 use std::io;

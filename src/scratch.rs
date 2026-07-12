@@ -1,3 +1,6 @@
+//! `tempfile`-free scratch directories: creates `{prefix}-{pid}-{counter}`
+//! under the system temp folder. Cleanup is the caller's responsibility.
+
 use std::io;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};

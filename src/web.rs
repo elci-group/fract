@@ -1,3 +1,7 @@
+//! Axum dashboard/API server: JSON endpoints for health, modules,
+//! proposals (including approve), config, and events (poll + SSE
+//! stream), plus traversal-guarded static files under `static/`.
+
 use crate::json::{to_value, Json, Value};
 use crate::report::SCHEMA;
 use crate::{config::Config, daemon::Daemon};

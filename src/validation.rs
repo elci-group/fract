@@ -1,3 +1,8 @@
+//! Validation pipeline for proposals: runs `cargo fmt --check`, clippy,
+//! check, and test in the scratch workspace, then compares public
+//! symbols for API compatibility. Coverage/complexity deltas are
+//! placeholders (0).
+
 use crate::time::now;
 use crate::{Proposal, ProposalStatus, TimelineEvent, ValidationReport};
 use std::path::Path;

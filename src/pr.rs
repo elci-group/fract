@@ -1,7 +1,7 @@
 //! Conventional Commit messages and pull-request bodies for fract refactors.
 //!
 //! Renders data the daemon already collects — refactor kind, module, confidence,
-//! the [`ValidationReport`], migration notes, and the [`DiffSummary`] — into
+//! the [`ValidationReport`], migration notes, and the [`DiffSummary`](crate::DiffSummary) — into
 //! stable, review-ready text. No git mutation happens here; this is pure
 //! presentation on top of a [`Proposal`].
 

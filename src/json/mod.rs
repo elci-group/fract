@@ -1,8 +1,8 @@
 //! Lightweight `serde_json` replacement for simple dashboard payloads.
 //!
-//! Split into focused submodules: [`value`] (the `Value` type, writer, and the
-//! `Json` response wrapper), [`ser`] (serde `Serializer` + `to_value`), and
-//! [`de`] (parser). Every public name is re-exported here so the external
+//! Split into focused submodules: `value` (the `Value` type, writer, and the
+//! `Json` response wrapper), `ser` (serde `Serializer` + `to_value`), and
+//! `de` (parser). Every public name is re-exported here so the external
 //! surface `crate::json::{Value, Json, json!, to_value, parse}` is unchanged.
 
 mod de;

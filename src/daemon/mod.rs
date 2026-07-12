@@ -1,7 +1,7 @@
 //! Autonomous maintenance daemon: watches the project tree, keeps a live
 //! module index and health model, and drives the refactor/validate/merge
-//! pipeline. Incremental notify reindexing lives in [`notify`]; the
-//! refactor/validate/merge pipeline lives in [`pipeline`].
+//! pipeline. Incremental notify reindexing lives in `notify`; the
+//! refactor/validate/merge pipeline lives in `pipeline`.
 
 mod notify;
 mod pipeline;

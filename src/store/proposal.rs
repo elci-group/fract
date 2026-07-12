@@ -1,3 +1,7 @@
+//! Journal codec for `Proposal` records: persists identity and lifecycle
+//! only — heavy `changed_files` payloads are re-derived on demand, not
+//! journaled.
+
 use crate::json::Value;
 use crate::time::{parse_rfc3339, to_rfc3339};
 use crate::{DiffSummary, Proposal, ProposalStatus, RefactorKind, TimelineEvent};
