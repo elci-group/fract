@@ -249,4 +249,152 @@ mod tests {
         assert_eq!(h.entropy_trend.len(), 1);
         assert_eq!(h.refactors_today.completed, 0);
     }
+
+    #[test]
+    fn recompute_health_caps_trend_at_100_entries() {
+        let mut prev = empty_health();
+        prev.entropy_trend = (0..100)
+            .map(|i| {
+                (
+                    std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(i),
+                    0.5,
+                )
+            })
+            .collect();
+        let h = recompute_health(&[module("src/a.rs", 0.50)], &prev);
+        assert_eq!(h.entropy_trend.len(), 100);
+    }
+
+    #[test]
+    fn avg_entropy_empty_module_set_is_zero() {
+        assert!((avg_entropy(&[]) - 0.0).abs() < f64::EPSILON);
+        let m = [module("src/a.rs", 0.4), module("src/b.rs", 0.8)];
+        assert!((avg_entropy(&m) - 0.6).abs() < 1e-9);
+    }
+
+    fn temp_dir() -> PathBuf {
+        // Rust runs the test binary's tests in parallel threads within one
+        // process, so a pid-only name would collide. Mix in a per-call counter.
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("fract-notify-test-{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn daemon_for(root: &std::path::Path) -> Arc<Daemon> {
+        Arc::new(Daemon::new(crate::config::Config::default_for(
+            root.to_path_buf(),
+        )))
+    }
+
+    #[test]
+    fn is_ignored_matches_configured_patterns() {
+        let root = temp_dir();
+        let daemon = daemon_for(&root);
+        assert!(daemon.is_ignored(&root.join("target/out.rs")));
+        assert!(daemon.is_ignored(&root.join(".git/config")));
+        assert!(!daemon.is_ignored(&root.join("src/lib.rs")));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn index_one_path_upserts_then_removes_module() {
+        let root = temp_dir();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        let file = root.join("src/a.rs");
+        std::fs::write(&file, "pub fn a() -> i32 { 1 }\n").unwrap();
+
+        let daemon = daemon_for(&root);
+        daemon.index_one_path(&file).await;
+        assert_eq!(daemon.modules().await.len(), 1);
+        assert_eq!(daemon.project_health().await.total_modules, 1);
+
+        // Deleting the file drops the cached module on the next event.
+        std::fs::remove_file(&file).unwrap();
+        daemon.index_one_path(&file).await;
+        assert!(daemon.modules().await.is_empty());
+        assert_eq!(daemon.project_health().await.total_modules, 0);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn handle_create_event_emits_file_saved_and_indexes() {
+        let root = temp_dir();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        let file = root.join("src/new.rs");
+        std::fs::write(&file, "pub fn n() -> i32 { 1 }\n").unwrap();
+
+        let daemon = daemon_for(&root);
+        let mut rx = daemon.event_bus().subscribe();
+        daemon
+            .handle_notify_event(NotifyEvent {
+                kind: notify::EventKind::Create(notify::event::CreateKind::File),
+                paths: vec![file],
+                attrs: notify::event::EventAttributes::new(),
+            })
+            .await;
+
+        let got = rx.recv().await.unwrap();
+        assert!(matches!(got.kind, EventKind::FileSaved));
+        assert_eq!(daemon.modules().await.len(), 1);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn handle_remove_event_drops_module_without_save_event() {
+        let root = temp_dir();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        let file = root.join("src/gone.rs");
+        std::fs::write(&file, "pub fn g() -> i32 { 1 }\n").unwrap();
+
+        let daemon = daemon_for(&root);
+        daemon.index_one_path(&file).await;
+        assert_eq!(daemon.modules().await.len(), 1);
+
+        std::fs::remove_file(&file).unwrap();
+        let mut rx = daemon.event_bus().subscribe();
+        daemon
+            .handle_notify_event(NotifyEvent {
+                kind: notify::EventKind::Remove(notify::event::RemoveKind::File),
+                paths: vec![file],
+                attrs: notify::event::EventAttributes::new(),
+            })
+            .await;
+
+        // Deletes must not fan out a save event.
+        assert!(rx.try_recv().is_err());
+        assert!(daemon.modules().await.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn handle_event_skips_ignored_paths_and_directories() {
+        let root = temp_dir();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+
+        let daemon = daemon_for(&root);
+        let mut rx = daemon.event_bus().subscribe();
+        for event in [
+            NotifyEvent {
+                kind: notify::EventKind::Create(notify::event::CreateKind::File),
+                paths: vec![root.join("target/generated.rs")],
+                attrs: notify::event::EventAttributes::new(),
+            },
+            NotifyEvent {
+                kind: notify::EventKind::Modify(notify::event::ModifyKind::Any),
+                paths: vec![root.join("src")],
+                attrs: notify::event::EventAttributes::new(),
+            },
+        ] {
+            daemon.handle_notify_event(event).await;
+        }
+
+        assert!(rx.try_recv().is_err(), "no events for ignored/dir paths");
+        assert!(daemon.modules().await.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
