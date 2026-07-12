@@ -1,3 +1,7 @@
+//! Daemon configuration: a TOML-loaded `Config` with serde defaults for
+//! thresholds, watch/ignore patterns, dashboard bind, output, and LLM
+//! knobs. `project_root` is canonicalized on load.
+
 use crate::error::Result;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;

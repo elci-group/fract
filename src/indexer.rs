@@ -1,3 +1,8 @@
+//! Full-project indexing: walks the tree with `walk`, dispatches each
+//! supported file to its language scanner, and derives `Module` metrics
+//! (fan-in from a call-graph approximation). `churn`, `test_coverage`,
+//! and `edit_frequency` are stubbed to 0 pending git/coverage wiring.
+
 use crate::error::{Context, Result};
 use crate::scanner::{JsTsScanner, PythonScanner, RustScanner};
 use crate::time::{now, Timestamp};

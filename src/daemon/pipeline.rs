@@ -1,3 +1,7 @@
+//! Refactor-pipeline driving: full-tree index refresh, queue processing
+//! (refactor a candidate, then validate it), and quiet-period-gated
+//! auto-merge of validated proposals.
+
 use super::notify::recompute_health;
 use super::Daemon;
 use crate::error::{Context, Result};

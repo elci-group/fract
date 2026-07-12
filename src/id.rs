@@ -1,3 +1,7 @@
+//! `uuid`-free identifiers: a process-local atomic counter rendered as
+//! `fract-{n}`. Unique and monotonic within one process only — not
+//! random, not stable across restarts.
+
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static COUNTER: AtomicU64 = AtomicU64::new(1);

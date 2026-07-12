@@ -1,3 +1,7 @@
+//! Incremental reindexing: maps filesystem watch events to single-path
+//! index updates (upsert/remove), event persistence and broadcast, and
+//! project-health recomputation.
+
 use super::Daemon;
 use crate::time::now;
 use crate::{Event, EventKind, Health, Module, ProjectHealth};

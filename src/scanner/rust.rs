@@ -1,3 +1,6 @@
+//! Rust line scanner: counts `fn` items (skipping `pub`/`async`/`unsafe`
+//! prefixes), branch keywords, public items, and imports from raw text.
+
 use super::mask::{count_branch_tokens, ident_prefix, mask_code};
 
 pub struct RustScanner;

@@ -1,3 +1,8 @@
+//! Broadcast event bus with a bounded in-memory history (last 1000
+//! events), fanning repository/filesystem events out to subscribers and
+//! the dashboard. History can be seeded from the journal on startup
+//! without re-broadcasting.
+
 use crate::time::now;
 use crate::{Event, EventKind};
 use std::path::PathBuf;

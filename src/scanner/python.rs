@@ -1,3 +1,7 @@
+//! Python line scanner: counts `def`s, branch keywords (including
+//! `and`/`or`), non-underscore-prefixed lines as public items, and
+//! `import`/`from` lines from raw text.
+
 use super::mask::{count_branch_tokens, ident_prefix};
 
 pub struct PythonScanner;

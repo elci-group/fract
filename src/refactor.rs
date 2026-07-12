@@ -1,3 +1,7 @@
+//! Refactor-engine abstraction: the `RefactorEngine` trait, the context
+//! package sent to an engine, and `MockRefactorEngine`, the offline
+//! engine performing simple structural splits.
+
 use crate::error::{Context, Result};
 use crate::time::now;
 use crate::{DiffSummary, Module, Proposal, ProposalStatus, TimelineEvent};

@@ -1,3 +1,7 @@
+//! Async refactor queue: entropy-thresholded candidate paths plus the
+//! proposal list, all behind a single `RwLock` so `RefactorQueue` clones
+//! share state across daemon tasks.
+
 use crate::id;
 use crate::time::now;
 use crate::{

@@ -1,3 +1,8 @@
+//! Confidence scoring for proposals: a weighted blend of validation
+//! outcomes (compile, tests, fmt/clippy, API compatibility) plus
+//! coverage, diff-size, and complexity deltas, clamped to [0, 0.999).
+//! The `Module` argument is currently unused.
+
 use crate::{Module, Proposal, ValidationReport};
 
 /// Compute a confidence score [0, 1] for a proposal.

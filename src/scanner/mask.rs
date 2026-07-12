@@ -1,3 +1,7 @@
+//! Shared scanner helpers: masks string/char literals and line comments
+//! before keyword counting, and extracts the sorted, deduped public
+//! symbol list per language.
+
 use super::jsts::JsTsScanner;
 use super::python::PythonScanner;
 use super::rust::RustScanner;

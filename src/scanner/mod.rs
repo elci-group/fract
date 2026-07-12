@@ -1,3 +1,7 @@
+//! Line-based source scanners per language (Rust, Python, JS/TS) plus
+//! string/comment masking. Deliberately parser-free: metrics are cheap
+//! approximations, not AST-exact.
+
 mod jsts;
 mod mask;
 mod python;

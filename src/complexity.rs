@@ -1,3 +1,7 @@
+//! Structural-entropy scoring: blends module size, cyclomatic complexity,
+//! cohesion loss, dependency density, public surface, and duplication
+//! into one [0, 1] score, each sub-score soft-clamped through a sigmoid.
+
 use crate::Module;
 
 /// Compute structural entropy for a module.

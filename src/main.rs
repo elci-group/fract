@@ -1,3 +1,7 @@
+//! Binary entry point: parses CLI args, installs tracing, and dispatches
+//! the `init` / `index` / `run` commands on a tokio runtime (`run`
+//! starts the daemon plus the web dashboard).
+
 use fract::cli::{Args, Command};
 use fract::config::Config;
 use fract::error::Result;

@@ -1,3 +1,7 @@
+//! Merge machinery for accepted proposals: safety assessment (quiet
+//! period, stability, conflicts), scratch-branch checkout, file
+//! application, git commit, and post-commit diff capture.
+
 use crate::error::{Context, Result};
 use crate::time::now;
 use crate::{DiffSummary, Proposal, ProposalStatus, TimelineEvent};

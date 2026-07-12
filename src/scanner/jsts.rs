@@ -1,3 +1,7 @@
+//! JavaScript/TypeScript line scanner: counts functions (declarations
+//! and arrows), branch keywords, `export` lines, and imports from raw
+//! text.
+
 use super::mask::{count_branch_tokens, ident_prefix, is_arrow_function};
 
 pub struct JsTsScanner;

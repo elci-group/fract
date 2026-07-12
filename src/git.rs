@@ -1,3 +1,6 @@
+//! Thin `git2` wrappers: repository discovery, working-tree cleanliness,
+//! current branch name, and HEAD SHA.
+
 use crate::error::{Context, Result};
 use git2::{Repository, StatusOptions};
 use std::path::Path;
