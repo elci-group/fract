@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Fract quality gate. Used by the kaptaind test hook and by hand.
 #
-# Runs formatting, linting, tests, dependency policy (amber), and a release
-# build, then prints the release binary size for tracking.
+# Runs formatting, linting, tests, dependency policy (amber), a security
+# advisory scan (cargo audit), and a release build, then prints the release
+# binary size for tracking.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -19,6 +20,9 @@ cargo test
 
 echo "==> amber dependency policy"
 amber "$ROOT" --config "$ROOT/.amber.toml" --threshold 70 --format console >/dev/null
+
+echo "==> cargo audit (security advisories)"
+cargo audit
 
 echo "==> cargo build --release"
 cargo build --release

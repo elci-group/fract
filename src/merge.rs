@@ -53,10 +53,7 @@ pub fn checkout_branch(root: &Path, id: &str) -> Result<String> {
         }
         Err(e) => return Err(e.into()),
     };
-    let refname = branch
-        .get()
-        .name()
-        .ok_or_else(|| "invalid branch ref".to_string())?;
+    let refname = branch.get().name().context("invalid branch ref")?;
     repo.set_head(refname)?;
     // Safe (non-forced) checkout: abort rather than overwrite local edits.
     let mut checkout = git2::build::CheckoutBuilder::new();

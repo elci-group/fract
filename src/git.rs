@@ -18,7 +18,7 @@ pub fn current_branch(repo: &Repository) -> Result<String> {
     let name = head
         .shorthand()
         .map(|s| s.to_string())
-        .unwrap_or_else(|| "HEAD".to_string());
+        .unwrap_or_else(|_| "HEAD".to_string());
     Ok(name)
 }
 
