@@ -2,18 +2,21 @@
 //! (refactor a candidate, then validate it), and quiet-period-gated
 //! auto-merge of validated proposals.
 
-use super::notify::recompute_health;
-use super::Daemon;
-use crate::error::{Context, Result};
-use crate::scratch;
-use crate::time::now;
+use super::{notify::recompute_health, Daemon};
 use crate::{
-    confidence, config::Mode, merge, refactor, validation, Module, ProjectHealth, Proposal,
-    ProposalStatus, RefactorKind, TimelineEvent, ValidationReport,
+    confidence,
+    config::Mode,
+    error::{Context, Result},
+    merge, refactor, scratch,
+    time::now,
+    validation, Module, ProjectHealth, Proposal, ProposalStatus, RefactorKind, TimelineEvent,
+    ValidationReport,
 };
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::Duration;
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 use tracing::{info, warn};
 
 impl Daemon {
@@ -285,17 +288,30 @@ async fn persist_health_snapshot(store: &crate::store::Store, health: &ProjectHe
 }
 
 fn classify_kind(module: &Module) -> RefactorKind {
-    if module.lines > SPLIT_LINES_THRESHOLD || module.functions > SPLIT_FUNCTIONS_THRESHOLD {
-        RefactorKind::SplitModule
-    } else if module.duplicates > DUPLICATES_THRESHOLD {
-        RefactorKind::RemoveDuplication
-    } else if module.public_api_size > API_SIZE_THRESHOLD {
-        RefactorKind::ReduceSurface
-    } else if module.fan_out > FAN_OUT_THRESHOLD {
-        RefactorKind::ReorderDependencies
-    } else {
-        RefactorKind::ExtractFunction
-    }
+    // First matching rule wins; the comparisons are cheap and side-effect free,
+    // so evaluating them eagerly keeps the priority order table-shaped.
+    let rules = [
+        (
+            module.lines > SPLIT_LINES_THRESHOLD || module.functions > SPLIT_FUNCTIONS_THRESHOLD,
+            RefactorKind::SplitModule,
+        ),
+        (
+            module.duplicates > DUPLICATES_THRESHOLD,
+            RefactorKind::RemoveDuplication,
+        ),
+        (
+            module.public_api_size > API_SIZE_THRESHOLD,
+            RefactorKind::ReduceSurface,
+        ),
+        (
+            module.fan_out > FAN_OUT_THRESHOLD,
+            RefactorKind::ReorderDependencies,
+        ),
+    ];
+    rules
+        .iter()
+        .find(|(applies, _)| *applies)
+        .map_or(RefactorKind::ExtractFunction, |(_, kind)| *kind)
 }
 
 async fn copy_dir_all(src: PathBuf, dst: PathBuf) -> Result<()> {
