@@ -65,7 +65,7 @@ impl Daemon {
     /// Load persisted proposals, events, and health from the journal and seed
     /// the in-memory buses. Infallible: malformed journal lines are skipped.
     async fn restore_from_store(self: &Arc<Self>) {
-        let loaded = self.store.load();
+        let loaded = self.store.load_async().await;
         self.event_bus.restore(loaded.events).await;
         self.queue.restore(loaded.proposals).await;
         if let Some(h) = loaded.health {

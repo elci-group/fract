@@ -19,7 +19,8 @@ impl Daemon {
             self.config.project_root.clone(),
             self.config.ignore_patterns.clone(),
         );
-        let modules = indexer.index()?;
+        // The full-tree std::fs walk must not block a tokio worker thread.
+        let modules = tokio::task::spawn_blocking(move || indexer.index()).await??;
         self.queue
             .refresh(&modules, self.config.entropy_threshold)
             .await;
@@ -34,7 +35,7 @@ impl Daemon {
         let health_snapshot = health.clone();
         drop(health);
 
-        let _ = self.store.append_health(&health_snapshot);
+        let _ = self.store.append_health_async(&health_snapshot).await;
 
         let mut stored = self.modules.write().await;
         *stored = modules;
@@ -92,7 +93,7 @@ impl Daemon {
 
             let persisted = proposal.clone();
             self.queue.enqueue_proposal(proposal).await;
-            let _ = self.store.append_proposal(&persisted);
+            let _ = self.store.append_proposal_async(&persisted).await;
 
             // Clean up scratch.
             let _ = tokio::fs::remove_dir_all(&scratch).await;
@@ -101,7 +102,7 @@ impl Daemon {
     }
 
     async fn prepare_scratch(&self, output: &refactor::RefactorOutput) -> Result<PathBuf> {
-        let root = scratch::temp_dir("fract")?;
+        let root = tokio::task::spawn_blocking(|| scratch::temp_dir("fract")).await??;
         // Copy project into scratch.
         copy_dir_all(self.config.project_root.clone(), root.clone()).await?;
         // Apply refactored files.
@@ -191,7 +192,7 @@ impl Daemon {
 
             let _ = self.store.append_proposal(&proposal);
             let health_snapshot = self.project_health.read().await.clone();
-            let _ = self.store.append_health(&health_snapshot);
+            let _ = self.store.append_health_async(&health_snapshot).await;
         }
         Ok(())
     }

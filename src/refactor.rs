@@ -140,7 +140,10 @@ pub async fn execute_proposal(
         message: "Building semantic context package".to_string(),
     });
 
-    let ctx = build_context(root, module)?;
+    // build_context does synchronous std::fs reads; keep them off the worker.
+    let root = root.to_path_buf();
+    let module = module.clone();
+    let ctx = tokio::task::spawn_blocking(move || build_context(&root, &module)).await??;
 
     proposal.timeline.push(TimelineEvent {
         at: now(),

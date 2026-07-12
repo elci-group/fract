@@ -69,7 +69,9 @@ pub async fn assess(
     quiet_period: Duration,
 ) -> Result<MergeSafety> {
     let module_path = root.join(&proposal.module);
-    let last_edit = last_modified(&module_path).ok();
+    let last_edit = tokio::task::spawn_blocking(move || last_modified(&module_path))
+        .await?
+        .ok();
     let stable = crate::git::stability(root)? == crate::git::Stability::Clean;
     let conflicts = has_conflicts(root, proposal).await?;
 
@@ -88,15 +90,21 @@ pub async fn apply(root: &Path, proposal: &mut Proposal) -> Result<()> {
         message: "Applying refactored files".to_string(),
     });
 
-    for cf in &proposal.changed_files {
-        let full = root.join(&cf.path);
-        if let Some(parent) = full.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("creating {}", parent.display()))?;
+    let root = root.to_path_buf();
+    let changed_files = proposal.changed_files.clone();
+    tokio::task::spawn_blocking(move || -> Result<()> {
+        for cf in &changed_files {
+            let full = root.join(&cf.path);
+            if let Some(parent) = full.parent() {
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("creating {}", parent.display()))?;
+            }
+            std::fs::write(&full, &cf.content)
+                .with_context(|| format!("writing {}", full.display()))?;
         }
-        std::fs::write(&full, &cf.content)
-            .with_context(|| format!("writing {}", full.display()))?;
-    }
+        Ok(())
+    })
+    .await??;
 
     proposal.timeline.push(TimelineEvent {
         at: now(),
@@ -110,6 +118,20 @@ pub async fn apply(root: &Path, proposal: &mut Proposal) -> Result<()> {
 /// (which `checkout_branch` pointed at a per-proposal branch). Guards against a
 /// missing git signature. Returns the new commit id as a hex string.
 pub async fn commit(root: &Path, proposal: &mut Proposal, message: &str) -> Result<String> {
+    let root = root.to_path_buf();
+    let message = message.to_string();
+    let mut staged = proposal.clone();
+    // The git2 staging/commit work is synchronous; keep it off the worker.
+    let (sha, committed) = tokio::task::spawn_blocking(move || -> Result<(String, Proposal)> {
+        let sha = commit_sync(&root, &mut staged, &message)?;
+        Ok((sha, staged))
+    })
+    .await??;
+    *proposal = committed;
+    Ok(sha)
+}
+
+fn commit_sync(root: &Path, proposal: &mut Proposal, message: &str) -> Result<String> {
     let repo = crate::git::open_repo(root)?;
 
     let signature = repo

@@ -31,7 +31,7 @@ impl Daemon {
                 kind,
                 path: Some(path.clone()),
             };
-            if let Err(e) = self.store.append_event(&ev) {
+            if let Err(e) = self.store.append_event_async(&ev).await {
                 warn!(
                     event = "store.append_event_failed",
                     error = %e,
@@ -63,7 +63,7 @@ impl Daemon {
                 *health = recompute_health(&snapshot, &health);
                 let snap = health.clone();
                 drop(health);
-                let _ = self.store.append_health(&snap);
+                let _ = self.store.append_health_async(&snap).await;
             }
             Ok(None) => {
                 // Empty/unsupported/deleted: if it was tracked, drop it.
@@ -78,7 +78,7 @@ impl Daemon {
                     *health = recompute_health(&snapshot, &health);
                     let snap = health.clone();
                     drop(health);
-                    let _ = self.store.append_health(&snap);
+                    let _ = self.store.append_health_async(&snap).await;
                 }
             }
             Err(e) => {

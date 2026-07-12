@@ -133,6 +133,42 @@ impl Store {
         self.append(&health::encode_health(h))
     }
 
+    /// `load` on the blocking pool, for async callers: the journal read is
+    /// synchronous std::fs and must not run on a tokio worker thread.
+    pub async fn load_async(&self) -> Loaded {
+        let store = self.clone();
+        tokio::task::spawn_blocking(move || store.load())
+            .await
+            .expect("store load panicked")
+    }
+
+    /// `append_proposal` on the blocking pool, for async callers.
+    pub async fn append_proposal_async(&self, p: &Proposal) -> Result<()> {
+        let store = self.clone();
+        let p = p.clone();
+        tokio::task::spawn_blocking(move || store.append_proposal(&p))
+            .await
+            .expect("store append panicked")
+    }
+
+    /// `append_event` on the blocking pool, for async callers.
+    pub async fn append_event_async(&self, e: &Event) -> Result<()> {
+        let store = self.clone();
+        let e = e.clone();
+        tokio::task::spawn_blocking(move || store.append_event(&e))
+            .await
+            .expect("store append panicked")
+    }
+
+    /// `append_health` on the blocking pool, for async callers.
+    pub async fn append_health_async(&self, h: &ProjectHealth) -> Result<()> {
+        let store = self.clone();
+        let h = h.clone();
+        tokio::task::spawn_blocking(move || store.append_health(&h))
+            .await
+            .expect("store append panicked")
+    }
+
     fn append(&self, v: &Value) -> Result<()> {
         use std::io::Write;
         let mut f = std::fs::OpenOptions::new()
