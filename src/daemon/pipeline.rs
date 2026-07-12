@@ -347,7 +347,6 @@ fn copy_dir_all_sync(src: &Path, dst: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use crate::{Health, Language};
-    use std::time::SystemTime;
 
     fn temp_dir() -> PathBuf {
         // Rust runs the test binary's tests in parallel threads within one
@@ -383,7 +382,7 @@ mod tests {
             test_coverage: 0.0,
             entropy: 0.9,
             health: Health::from_entropy(0.9),
-            last_modified: SystemTime::UNIX_EPOCH,
+            last_modified: std::time::SystemTime::UNIX_EPOCH,
         }
     }
 
@@ -545,7 +544,7 @@ mod tests {
     fn accepted_proposal(id: &str, content: &str) -> Proposal {
         Proposal {
             id: id.to_string(),
-            created_at: SystemTime::UNIX_EPOCH,
+            created_at: std::time::SystemTime::UNIX_EPOCH,
             module: PathBuf::from("src/lib.rs"),
             kind: RefactorKind::ExtractFunction,
             confidence: 0.95,
