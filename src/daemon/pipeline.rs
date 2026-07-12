@@ -609,21 +609,12 @@ mod tests {
         assert_eq!(repo.head().unwrap().shorthand().unwrap(), "fract/2");
         let health = daemon.project_health().await;
         assert_eq!(health.refactors_today.completed, 1);
-        let _ = std::fs::remove_dir_all(&root);
+        cleanup(&root);
     }
 
     #[tokio::test]
     async fn attempt_merges_assisted_prepares_branch_without_commit() {
-        let root = git_project();
-        let mut cfg = crate::config::Config::default_for(root.clone());
-        cfg.mode = Mode::Assisted;
-        cfg.quiet_period_secs = 0;
-        let daemon = Arc::new(Daemon::new(cfg));
-        enqueue_accepted(
-            &daemon,
-            accepted_proposal("fract-3", "pub fn b() -> i32 { 2 }\n"),
-        )
-        .await;
+        let (root, daemon) = daemon_with_accepted(Mode::Assisted, "fract-3").await;
         daemon.attempt_merges().await.unwrap();
 
         let p = daemon.proposals().await.pop().unwrap();
@@ -646,21 +637,12 @@ mod tests {
             .unwrap()
             .to_string();
         assert_eq!(message, "init");
-        let _ = std::fs::remove_dir_all(&root);
+        cleanup(&root);
     }
 
     #[tokio::test]
     async fn attempt_merges_marks_conflicting_proposal() {
-        let root = git_project();
-        let mut cfg = crate::config::Config::default_for(root.clone());
-        cfg.mode = Mode::Autonomous;
-        cfg.quiet_period_secs = 0;
-        let daemon = Arc::new(Daemon::new(cfg));
-        enqueue_accepted(
-            &daemon,
-            accepted_proposal("fract-4", "pub fn b() -> i32 { 2 }\n"),
-        )
-        .await;
+        let (root, daemon) = daemon_with_accepted(Mode::Autonomous, "fract-4").await;
         // Dirty the target path so the conflict scan trips.
         std::fs::write(root.join("src/lib.rs"), "pub fn local_edit() {}\n").unwrap();
         daemon.attempt_merges().await.unwrap();
@@ -668,7 +650,7 @@ mod tests {
         let p = daemon.proposals().await.pop().unwrap();
         assert_eq!(p.status, ProposalStatus::Conflicts);
         assert!(p.timeline.iter().any(|e| e.message.contains("Conflicts")));
-        let _ = std::fs::remove_dir_all(&root);
+        cleanup(&root);
     }
 
     /// End-to-end queue processing against a real cargo project. Intentionally
