@@ -99,7 +99,14 @@ impl Daemon {
 
             let persisted = proposal.clone();
             self.queue.enqueue_proposal(proposal).await;
-            let _ = self.store.append_proposal_async(&persisted).await;
+            if let Err(e) = self.store.append_proposal_async(&persisted).await {
+                warn!(
+                    event = "store.append_failed",
+                    proposal = %persisted.id,
+                    error = %e,
+                    "failed to persist proposal"
+                );
+            }
 
             // Clean up scratch.
             let _ = tokio::fs::remove_dir_all(&scratch).await;
@@ -174,7 +181,18 @@ impl Daemon {
             if self.config.mode == Mode::Autonomous {
                 let message = crate::pr::conventional_commit_message(&proposal);
                 let sha = merge::commit(&self.config.project_root, &mut proposal, &message).await?;
-                let diff = merge::diff_last_commit(&self.config.project_root).unwrap_or_default();
+                let diff = match merge::diff_last_commit(&self.config.project_root) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        warn!(
+                            event = "merge.diff_failed",
+                            proposal = %proposal.id,
+                            error = %e,
+                            "failed to compute commit diff; using empty diff"
+                        );
+                        String::new()
+                    }
+                };
                 proposal.pr_body = Some(crate::pr::render_pr_body(&proposal, &diff, &branch, &sha));
 
                 let mut health = self.project_health.write().await;
@@ -196,9 +214,22 @@ impl Daemon {
                 .update_proposal(&proposal.id, |p| *p = proposal.clone())
                 .await;
 
-            let _ = self.store.append_proposal_async(&proposal).await;
+            if let Err(e) = self.store.append_proposal_async(&proposal).await {
+                warn!(
+                    event = "store.append_failed",
+                    proposal = %proposal.id,
+                    error = %e,
+                    "failed to persist proposal"
+                );
+            }
             let health_snapshot = self.project_health.read().await.clone();
-            let _ = self.store.append_health_async(&health_snapshot).await;
+            if let Err(e) = self.store.append_health_async(&health_snapshot).await {
+                warn!(
+                    event = "store.append_failed",
+                    error = %e,
+                    "failed to persist health snapshot"
+                );
+            }
         }
         Ok(())
     }
@@ -227,7 +258,14 @@ impl Daemon {
             proposal.confidence = confidence::score(&module, &proposal, &report);
             proposal.status = ProposalStatus::Detected;
             self.queue.enqueue_proposal(proposal.clone()).await;
-            let _ = self.store.append_proposal_async(&proposal).await;
+            if let Err(e) = self.store.append_proposal_async(&proposal).await {
+                warn!(
+                    event = "store.append_failed",
+                    proposal = %proposal.id,
+                    error = %e,
+                    "failed to persist proposal"
+                );
+            }
             produced.push(proposal);
         }
         Ok(produced)
