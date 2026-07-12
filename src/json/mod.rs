@@ -11,6 +11,7 @@ mod value;
 
 pub use de::parse;
 pub use ser::to_value;
+pub(crate) use value::{as_array, as_object, as_str, get, get_str};
 pub use value::{Json, Value};
 
 #[macro_export]

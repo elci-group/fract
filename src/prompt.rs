@@ -13,7 +13,7 @@
 //! dependency-free.
 
 use crate::error::Result;
-use crate::json::{self, Value};
+use crate::json::{self, as_array, as_object, as_str, get, get_str};
 use crate::refactor::{RefactorContext, RefactorOutput};
 use crate::DiffSummary;
 use std::path::{Path, PathBuf};
@@ -219,35 +219,6 @@ fn extract_json(input: &str) -> &str {
         (Some(s), Some(e)) if e > s => input[s..=e].trim(),
         _ => input.trim(),
     }
-}
-
-fn as_object(v: &Value) -> Option<&[(String, Value)]> {
-    match v {
-        Value::Object(entries) => Some(entries),
-        _ => None,
-    }
-}
-
-fn as_array(v: &Value) -> Option<&[Value]> {
-    match v {
-        Value::Array(items) => Some(items),
-        _ => None,
-    }
-}
-
-fn as_str(v: &Value) -> Option<&str> {
-    match v {
-        Value::String(s) => Some(s),
-        _ => None,
-    }
-}
-
-fn get<'a>(obj: &'a [(String, Value)], key: &str) -> Option<&'a Value> {
-    obj.iter().find(|(k, _)| k == key).map(|(_, v)| v)
-}
-
-fn get_str<'a>(obj: &'a [(String, Value)], key: &str) -> Option<&'a str> {
-    get(obj, key).and_then(as_str)
 }
 
 #[cfg(test)]

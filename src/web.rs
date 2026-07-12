@@ -179,27 +179,14 @@ async fn static_handler(uri: Uri) -> Response<Body> {
     // Prevent directory traversal outside static/.
     let canonical_file = match tokio::fs::canonicalize(&file).await {
         Ok(c) => c,
-        Err(_) => {
-            return Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body(Body::from("not found"))
-                .unwrap()
-        }
+        Err(_) => return not_found(),
     };
     let canonical_root = match tokio::fs::canonicalize("static").await {
         Ok(c) => c,
-        Err(_) => {
-            return Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body(Body::from("not found"))
-                .unwrap()
-        }
+        Err(_) => return not_found(),
     };
     if !canonical_file.starts_with(&canonical_root) {
-        return Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(Body::from("not found"))
-            .unwrap();
+        return not_found();
     }
 
     match tokio::fs::read(&canonical_file).await {
@@ -210,11 +197,15 @@ async fn static_handler(uri: Uri) -> Response<Body> {
                 .body(Body::from(bytes))
                 .unwrap()
         }
-        Err(_) => Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(Body::from("not found"))
-            .unwrap(),
+        Err(_) => not_found(),
     }
+}
+
+fn not_found() -> Response<Body> {
+    Response::builder()
+        .status(StatusCode::NOT_FOUND)
+        .body(Body::from("not found"))
+        .unwrap()
 }
 
 fn content_type(path: &std::path::Path) -> &'static str {

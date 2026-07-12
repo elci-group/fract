@@ -1,6 +1,6 @@
 [package]
 name = "fract"
-version = "0.2.8"
+version = "0.2.9"
 edition = "2021"
 authors = ["Fract Contributors"]
 description = "Autonomous architectural maintenance daemon for Rust projects"

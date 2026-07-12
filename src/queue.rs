@@ -1,6 +1,6 @@
 use crate::id;
 use crate::time::now;
-use crate::{Health, Module, Proposal, ProposalId, ProposalStatus, RefactorKind, TimelineEvent};
+use crate::{Module, Proposal, ProposalId, ProposalStatus, RefactorKind, TimelineEvent};
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -80,16 +80,6 @@ impl RefactorQueue {
         if let Some(p) = inner.proposals.iter_mut().find(|p| p.id == id) {
             f(p);
         }
-    }
-
-    pub async fn health_counts(&self, modules: &[Module]) -> (usize, usize, usize) {
-        modules
-            .iter()
-            .fold((0, 0, 0), |(h, w, c), m| match m.health {
-                Health::Excellent | Health::Healthy => (h + 1, w, c),
-                Health::Warning => (h, w + 1, c),
-                Health::Critical => (h, w, c + 1),
-            })
     }
 }
 

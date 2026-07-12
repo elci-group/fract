@@ -81,6 +81,24 @@ impl WalkIter {
             None => true,
         }
     }
+
+    /// Ignore-check a candidate directory and push it onto the stack when we
+    /// may descend into it. Unreadable directories (permission denied) are
+    /// skipped; both call sites are at the end of the loop body, so skipping
+    /// here is equivalent to the original `continue`.
+    fn descend_into(&mut self, path: &Path, cur_depth: usize) {
+        let rel = path.strip_prefix(&self.root).unwrap_or(path);
+        if self.is_ignored(rel) {
+            return;
+        }
+        if self.may_descend(cur_depth) {
+            // Err (permission denied): skip the directory.
+            if let Ok(rd) = fs::read_dir(path) {
+                self.stack.push(rd);
+                self.depths.push(cur_depth + 1);
+            }
+        }
+    }
 }
 
 impl Iterator for WalkIter {
@@ -126,19 +144,7 @@ impl Iterator for WalkIter {
                                 continue;
                             }
                             if target.is_dir() {
-                                let rel = path.strip_prefix(&self.root).unwrap_or(&path);
-                                if self.is_ignored(rel) {
-                                    continue;
-                                }
-                                if self.may_descend(cur_depth) {
-                                    match fs::read_dir(&path) {
-                                        Ok(rd) => {
-                                            self.stack.push(rd);
-                                            self.depths.push(cur_depth + 1);
-                                        }
-                                        Err(_) => continue, // permission denied: skip
-                                    }
-                                }
+                                self.descend_into(&path, cur_depth);
                             } else if target.is_file() {
                                 let rel = path.strip_prefix(&self.root).unwrap_or(&path);
                                 if self.is_ignored(rel) {
@@ -164,19 +170,7 @@ impl Iterator for WalkIter {
                                 continue;
                             }
                         }
-                        let rel = path.strip_prefix(&self.root).unwrap_or(&path);
-                        if self.is_ignored(rel) {
-                            continue;
-                        }
-                        if self.may_descend(cur_depth) {
-                            match fs::read_dir(&path) {
-                                Ok(rd) => {
-                                    self.stack.push(rd);
-                                    self.depths.push(cur_depth + 1);
-                                }
-                                Err(_) => continue, // permission denied: skip
-                            }
-                        }
+                        self.descend_into(&path, cur_depth);
                     } else if file_type.is_file() {
                         let rel = path.strip_prefix(&self.root).unwrap_or(&path);
                         if self.is_ignored(rel) {

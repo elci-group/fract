@@ -3,13 +3,13 @@
 //! terminator.
 //!
 //! This is the only transport code in the LLM refactor path. Prompt rendering,
-//! plan parsing, and output conversion all live in [`crate::prompt`] and are
-//! reused verbatim here; this module is responsible solely for shipping the
-//! rendered prompt to an OpenAI-compatible `/chat/completions` endpoint and
-//! handing the response text back to the parser.
+//! plan parsing, and output conversion all live in [`crate::prompt`]; this
+//! module is responsible solely for shipping the rendered prompt to an
+//! OpenAI-compatible `/chat/completions` endpoint and handing the response
+//! text back to the parser.
 
 use crate::error::Result;
-use crate::json::Value;
+use crate::json::{as_array, as_object, get, get_str, Value};
 use crate::refactor::{RefactorContext, RefactorEngine, RefactorOutput};
 use std::future::Future;
 use std::pin::Pin;
@@ -104,35 +104,6 @@ fn extract_completion_content(resp_json: &str) -> Result<String> {
         .ok_or(MISSING)?;
     let content = get_str(message, "content").ok_or(MISSING)?;
     Ok(content.to_string())
-}
-
-fn as_object(v: &Value) -> Option<&[(String, Value)]> {
-    match v {
-        Value::Object(entries) => Some(entries),
-        _ => None,
-    }
-}
-
-fn as_array(v: &Value) -> Option<&[Value]> {
-    match v {
-        Value::Array(items) => Some(items),
-        _ => None,
-    }
-}
-
-fn as_str(v: &Value) -> Option<&str> {
-    match v {
-        Value::String(s) => Some(s),
-        _ => None,
-    }
-}
-
-fn get<'a>(obj: &'a [(String, Value)], key: &str) -> Option<&'a Value> {
-    obj.iter().find(|(k, _)| k == key).map(|(_, v)| v)
-}
-
-fn get_str<'a>(obj: &'a [(String, Value)], key: &str) -> Option<&'a str> {
-    get(obj, key).and_then(as_str)
 }
 
 fn parse_endpoint(

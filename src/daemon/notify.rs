@@ -59,17 +59,7 @@ impl Daemon {
                 *stored = upsert_module(std::mem::take(&mut *stored), m);
                 let snapshot = stored.clone();
                 drop(stored);
-                let mut health = self.project_health.write().await;
-                *health = recompute_health(&snapshot, &health);
-                let snap = health.clone();
-                drop(health);
-                if let Err(e) = self.store.append_health_async(&snap).await {
-                    warn!(
-                        event = "store.append_failed",
-                        error = %e,
-                        "failed to persist health snapshot"
-                    );
-                }
+                self.persist_health(&snapshot).await;
             }
             Ok(None) => {
                 // Empty/unsupported/deleted: if it was tracked, drop it.
@@ -80,17 +70,7 @@ impl Daemon {
                 if stored.len() != before {
                     let snapshot = stored.clone();
                     drop(stored);
-                    let mut health = self.project_health.write().await;
-                    *health = recompute_health(&snapshot, &health);
-                    let snap = health.clone();
-                    drop(health);
-                    if let Err(e) = self.store.append_health_async(&snap).await {
-                        warn!(
-                            event = "store.append_failed",
-                            error = %e,
-                            "failed to persist health snapshot"
-                        );
-                    }
+                    self.persist_health(&snapshot).await;
                 }
             }
             Err(e) => {
@@ -101,6 +81,21 @@ impl Daemon {
                     "incremental reindex failed"
                 );
             }
+        }
+    }
+
+    /// Recompute project health from a module snapshot and persist it.
+    async fn persist_health(&self, modules: &[Module]) {
+        let mut health = self.project_health.write().await;
+        *health = recompute_health(modules, &health);
+        let snap = health.clone();
+        drop(health);
+        if let Err(e) = self.store.append_health_async(&snap).await {
+            warn!(
+                event = "store.append_failed",
+                error = %e,
+                "failed to persist health snapshot"
+            );
         }
     }
 

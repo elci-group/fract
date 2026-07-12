@@ -131,6 +131,40 @@ fn write_number(n: f64, out: &mut String) {
     }
 }
 
+/// Borrow the entries of an object value.
+pub(crate) fn as_object(v: &Value) -> Option<&[(String, Value)]> {
+    match v {
+        Value::Object(entries) => Some(entries),
+        _ => None,
+    }
+}
+
+/// Borrow the items of an array value.
+pub(crate) fn as_array(v: &Value) -> Option<&[Value]> {
+    match v {
+        Value::Array(items) => Some(items),
+        _ => None,
+    }
+}
+
+/// Borrow the inner string of a string value.
+pub(crate) fn as_str(v: &Value) -> Option<&str> {
+    match v {
+        Value::String(s) => Some(s),
+        _ => None,
+    }
+}
+
+/// Look up a key in object entries.
+pub(crate) fn get<'a>(obj: &'a [(String, Value)], key: &str) -> Option<&'a Value> {
+    obj.iter().find(|(k, _)| k == key).map(|(_, v)| v)
+}
+
+/// Look up a key in object entries and borrow it as a string.
+pub(crate) fn get_str<'a>(obj: &'a [(String, Value)], key: &str) -> Option<&'a str> {
+    get(obj, key).and_then(as_str)
+}
+
 fn write_string(s: &str, out: &mut String) {
     out.push('"');
     for c in s.chars() {
