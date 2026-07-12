@@ -35,7 +35,13 @@ impl Daemon {
         let health_snapshot = health.clone();
         drop(health);
 
-        let _ = self.store.append_health_async(&health_snapshot).await;
+        if let Err(e) = self.store.append_health_async(&health_snapshot).await {
+            warn!(
+                event = "store.append_failed",
+                error = %e,
+                "failed to persist health snapshot"
+            );
+        }
 
         let mut stored = self.modules.write().await;
         *stored = modules;

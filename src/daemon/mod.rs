@@ -90,7 +90,12 @@ impl Daemon {
 
         let mut watcher: RecommendedWatcher = Watcher::new(
             move |res| {
-                let _ = tx.blocking_send(res);
+                if tx.blocking_send(res).is_err() {
+                    warn!(
+                        event = "notify.channel_full",
+                        "notify channel full or closed; dropping event"
+                    );
+                }
             },
             NotifyConfig::default(),
         )?;

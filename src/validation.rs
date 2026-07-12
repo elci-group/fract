@@ -125,7 +125,17 @@ async fn check_api_compatibility(root: &Path, proposal: &Proposal) -> (bool, Vec
     let pairs: Vec<(std::path::PathBuf, String)> = if proposal.changed_files.is_empty() {
         match tokio::fs::read_to_string(root.join(&proposal.module)).await {
             Ok(s) => vec![(proposal.module.clone(), s)],
-            Err(_) => return (true, Vec::new()), // nothing to compare → not a breakage we can detect
+            Err(e) => {
+                // Conservative: an unreadable module cannot be checked, so fail
+                // validation rather than wave a possibly-breaking change through.
+                warn!(
+                    event = "validation.module_unreadable",
+                    path = %proposal.module.display(),
+                    error = %e,
+                    "module unreadable during API check; treating as incompatible"
+                );
+                return (false, Vec::new());
+            }
         }
     } else {
         proposal
@@ -151,7 +161,18 @@ async fn check_api_compatibility(root: &Path, proposal: &Proposal) -> (bool, Vec
         } else {
             path.clone()
         };
-        let before = git_show_head(root, &rel).await.unwrap_or_default(); // new file → empty → no removals required
+        // New file (or git failure) → empty baseline → no removals required.
+        let before = match git_show_head(root, &rel).await {
+            Some(b) => b,
+            None => {
+                warn!(
+                    event = "validation.git_show_failed",
+                    path = %rel.display(),
+                    "git show HEAD failed; using empty baseline"
+                );
+                String::new()
+            }
+        };
         let removed = removed_public_symbols(&before, &after, lang);
         if !removed.is_empty() {
             compatible = false;

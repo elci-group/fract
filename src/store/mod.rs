@@ -36,7 +36,14 @@ impl Store {
     /// or written here; IO happens per `append_*`/`load` call.
     pub fn open(root: &Path) -> Self {
         let dir = root.join(".fract");
-        let _ = std::fs::create_dir_all(&dir);
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            warn!(
+                event = "store.init_failed",
+                path = %dir.display(),
+                error = %e,
+                "failed to create .fract state directory"
+            );
+        }
         Self {
             path: Arc::new(dir.join("state.jsonl")),
         }
@@ -52,7 +59,17 @@ impl Store {
         };
         let text = match std::fs::read_to_string(self.path.as_path()) {
             Ok(t) => t,
-            Err(_) => return loaded,
+            // Missing journal is the normal first-run case: stay silent.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return loaded,
+            Err(e) => {
+                warn!(
+                    event = "store.read_failed",
+                    path = %self.path.display(),
+                    error = %e,
+                    "failed to read journal; starting from empty state"
+                );
+                return loaded;
+            }
         };
         for (i, raw) in text.lines().enumerate() {
             let line = raw.trim();

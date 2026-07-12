@@ -142,13 +142,26 @@ fn commit_sync(root: &Path, proposal: &mut Proposal, message: &str) -> Result<St
     // Scope staging to exactly the paths this proposal touched — never `add_all`.
     let mut staged = 0usize;
     for cf in &proposal.changed_files {
-        if index.add_path(cf.path.as_path()).is_ok() {
-            staged += 1;
+        match index.add_path(cf.path.as_path()) {
+            Ok(()) => staged += 1,
+            Err(e) => warn!(
+                event = "merge.stage_failed",
+                path = %cf.path.display(),
+                error = %e,
+                "failed to stage changed path"
+            ),
         }
     }
     if staged == 0 {
         // changed_files empty (e.g. detect-only): at least stage the module.
-        let _ = index.add_path(proposal.module.as_path());
+        if let Err(e) = index.add_path(proposal.module.as_path()) {
+            warn!(
+                event = "merge.stage_failed",
+                path = %proposal.module.display(),
+                error = %e,
+                "failed to stage module path"
+            );
+        }
     }
     index.write()?;
 

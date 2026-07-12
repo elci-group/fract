@@ -13,6 +13,7 @@ use crate::json::Value;
 use crate::refactor::{RefactorContext, RefactorEngine, RefactorOutput};
 use std::future::Future;
 use std::pin::Pin;
+use tracing::warn;
 
 /// LLM refactor engine backed by an OpenAI-compatible HTTP endpoint.
 pub struct HttpRefactorEngine {
@@ -179,8 +180,22 @@ fn http_post_chat(endpoint: &str, api_key: Option<&str>, body: &str) -> Result<S
         .ok_or_else(|| format!("no address for {host}:{port}"))?;
     let mut stream = std::net::TcpStream::connect_timeout(&addr, Duration::from_secs(10))
         .map_err(|e| format!("connect {host}:{port} failed: {e}"))?;
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(120)));
-    let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
+    if let Err(e) = stream.set_read_timeout(Some(Duration::from_secs(120))) {
+        warn!(
+            event = "http.timeout_config_failed",
+            kind = "read",
+            error = %e,
+            "failed to set read timeout"
+        );
+    }
+    if let Err(e) = stream.set_write_timeout(Some(Duration::from_secs(30))) {
+        warn!(
+            event = "http.timeout_config_failed",
+            kind = "write",
+            error = %e,
+            "failed to set write timeout"
+        );
+    }
     let mut head = format!(
         "POST {path} HTTP/1.1\r\nHost: {host}:{port}\r\nContent-Type: application/json\r\nAccept: application/json\r\nContent-Length: {}\r\nConnection: close\r\n",
         body.len()

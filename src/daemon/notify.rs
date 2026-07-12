@@ -63,7 +63,13 @@ impl Daemon {
                 *health = recompute_health(&snapshot, &health);
                 let snap = health.clone();
                 drop(health);
-                let _ = self.store.append_health_async(&snap).await;
+                if let Err(e) = self.store.append_health_async(&snap).await {
+                    warn!(
+                        event = "store.append_failed",
+                        error = %e,
+                        "failed to persist health snapshot"
+                    );
+                }
             }
             Ok(None) => {
                 // Empty/unsupported/deleted: if it was tracked, drop it.
@@ -78,7 +84,13 @@ impl Daemon {
                     *health = recompute_health(&snapshot, &health);
                     let snap = health.clone();
                     drop(health);
-                    let _ = self.store.append_health_async(&snap).await;
+                    if let Err(e) = self.store.append_health_async(&snap).await {
+                        warn!(
+                            event = "store.append_failed",
+                            error = %e,
+                            "failed to persist health snapshot"
+                        );
+                    }
                 }
             }
             Err(e) => {
