@@ -34,8 +34,8 @@ removed and replaced with small internal modules (`error`, `json`, `walk`,
 surface, and binary size minimal — and the head-to-head benches in `benches/`
 prove the replacements are competitive.
 
-The policy is enforced by [amber](https://github.com/anthropics/amber) using
-[`.amber.toml`](.amber.toml) with `strict = true`:
+The policy is enforced by amber using [`.amber.toml`](.amber.toml) with
+`strict = true`:
 
 - **Required (allowed):** `tokio`, `notify`, `axum`, `futures-util`, `serde`,
   `toml`, `tracing`, `tracing-subscriber`, `git2` — the async runtime, file

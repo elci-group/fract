@@ -1,6 +1,7 @@
 # Fract
 
-Autonomous architectural maintenance daemon for Rust, Python, TypeScript, and JavaScript projects.
+Autonomous architectural maintenance daemon for Rust, Python, TypeScript, and
+JavaScript projects.
 
 > **Copilot** writes code.  
 > **Silverline** fixes errors.  
@@ -17,9 +18,11 @@ Fract runs continuously in the background, watches your project, and asks:
 - Is duplication increasing?
 - Are dependency cycles emerging?
 
-When structural entropy crosses a threshold, Fract builds a semantic context package,
-invokes an LLM refactor engine, validates the result with `cargo fmt`, `clippy`,
-`check`, and `test`, and—if safe—applies the change.
+When structural entropy crosses a threshold, Fract builds a semantic context
+package, invokes an LLM refactor engine, validates the result with
+`cargo fmt`, `clippy`, `check`, and `test`, and—if safe—applies the change.
+Every step is journaled to `.fract/state.jsonl` and streamed to a live
+dashboard.
 
 ## Pipeline
 
@@ -42,16 +45,25 @@ Project Indexer ──► Complexity Engine ──► Refactor Candidate Queue
                                         Git Commit / Patch
 ```
 
+The full stage-by-stage design, module map, and concurrency model live in
+[ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Installation
+
+Requires a recent stable Rust toolchain (see `rust-version` in `Cargo.toml`).
+
+```bash
+cargo build --release
+# binary at target/release/fract
+```
+
 ## Quick start
 
 ```bash
-# Build
-cargo build --release
-
-# Generate a config file
+# Generate a config file (fract.toml) in the current directory
 ./target/release/fract init
 
-# Index and inspect module health
+# Index the project and print module health
 ./target/release/fract index
 
 # Run the daemon with the dashboard
@@ -59,6 +71,30 @@ cargo build --release
 ```
 
 Open http://127.0.0.1:7345 to see the glassmorphism dashboard.
+
+## CLI
+
+```
+fract [OPTIONS] [COMMAND]
+
+Commands:
+  run     Run the daemon (default)
+  index   Index the project and print module health
+  init    Generate a default configuration file (--path/-p to choose where)
+
+Options:
+  -c, --config <FILE>    Path to configuration file
+  -f, --format <FORMAT>  Output format: human, json, jsonl, sarif, markdown
+      --color <WHEN>     Colour output: auto, always, never
+      --no-color         Disable colour output (also honors NO_COLOR)
+  -v, --verbose          Increase verbosity (repeatable, e.g. -vv)
+  -q, --quiet            Decrease verbosity
+  -h, --help             Print help
+  -V, --version          Print version
+```
+
+If no `--config` is given, Fract loads `./fract.toml` when present and falls
+back to built-in defaults otherwise.
 
 ## Modes
 
@@ -68,15 +104,22 @@ Open http://127.0.0.1:7345 to see the glassmorphism dashboard.
 
 ## Configuration
 
-See [`fract.toml`](fract.toml) for an example. Key options:
+No example config ships in the repo — `fract init` generates a `fract.toml`
+with every default written out. Key options:
 
 | Option | Description |
 |--------|-------------|
-| `mode` | `passive`, `assisted`, or `autonomous` |
-| `entropy_threshold` | Modules above this score enter the queue (default `0.82`) |
+| `mode` | `passive` (default), `assisted`, or `autonomous` |
+| `entropy_threshold` | Modules at or above this score enter the queue (default `0.82`) |
 | `confidence_threshold` | Minimum confidence before auto-merge (default `0.90`) |
-| `quiet_period_secs` | Seconds of no edits before merge (default `120`) |
-| `llm.provider` | `mock`, `openai`, `anthropic`, or `local` |
+| `quiet_period_secs` | Seconds of no edits before a merge is considered safe (default `120`) |
+| `watch_patterns` | Globs to watch — defaults cover `src/**/*.rs`, `**/*.py`, `**/*.ts`, `**/*.js` |
+| `ignore_patterns` | Defaults skip `target/`, `.git/`, `.fract/`, `node_modules/`, `.venv/`, `dist/` |
+| `bind` | Dashboard address (default `127.0.0.1:7345`) |
+| `output.format` | Default report format: `human`, `json`, `jsonl`, `sarif`, or `markdown` |
+| `output.max_findings` | Noise budget: cap on actionable findings (0 = unlimited) |
+| `llm.provider` | `mock` (default), `openai`, `anthropic`, or `local` |
+| `llm.model` | Model name (default `gpt-oss-120b`) |
 
 ## Entropy formula
 
@@ -90,25 +133,26 @@ Entropy =
 + 0.1 * duplication
 ```
 
-Each sub-score is normalised to `[0, 1]` with soft clamping.
+Each sub-score is normalised to `[0, 1]` with soft (sigmoid) clamping.
 
-## Architecture
+## Quality gates
 
-- `daemon` — orchestrates watchers, indexing, queue processing, and merges.
-- `indexer` — walks the project and extracts module metrics.
-- `complexity` — computes the structural entropy score.
-- `queue` — holds candidates and proposals.
-- `refactor` — LLM refactor engine interface plus a mock implementation.
-- `validation` — runs the cargo / toolchain validation pipeline.
-- `merge` — safety checks and application of accepted refactors.
-- `confidence` — scores proposals from validation results.
-- `web` — dashboard API and static file serving.
+Fract holds itself to the same standard it enforces on your code:
 
-## Status
+- `scripts/ci.sh` — fmt, clippy pedantic with `-D warnings`, tests, the amber
+  dependency policy, `cargo audit`, and a release build. This is the gate
+  every change must pass.
+- `scripts/perf-check.sh` — performance guardrails for the hand-rolled
+  replacements (JSON, walk, scanners, time, ids, CLI parsing) against
+  `bench/baseline.json`.
+- A zero-dependency philosophy: only nine vetted crates; common conveniences
+  (`anyhow`, `serde_json`, `walkdir`, `clap`, `chrono`, `uuid`, `tempfile`)
+  are implemented in-tree and forbidden from returning.
 
-This is a working scaffold. The mock refactor engine demonstrates the pipeline;
-replace it with a real LLM backend by implementing the `RefactorEngine` trait.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for details, and
+[CHANGELOG.md](CHANGELOG.md) for the release history.
 
 ## License
 
-MIT OR Apache-2.0
+Licensed under either of [MIT](LICENSE-MIT) or
+[Apache-2.0](LICENSE-APACHE) at your option.
