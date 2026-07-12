@@ -471,7 +471,7 @@ mod tests {
         let queued = daemon.proposals().await;
         assert_eq!(queued.len(), 2);
         assert!(queued.iter().all(|p| p.status == ProposalStatus::Queued));
-        let _ = std::fs::remove_dir_all(&root);
+        cleanup(&root);
     }
 
     #[tokio::test]
@@ -489,7 +489,7 @@ mod tests {
         let produced = daemon.detect_proposals().await.unwrap();
         assert!(produced.is_empty());
         assert!(daemon.proposals().await.is_empty());
-        let _ = std::fs::remove_dir_all(&root);
+        cleanup(&root);
     }
 
     #[test]
@@ -512,8 +512,8 @@ mod tests {
             "[package]\n"
         );
         assert!(!dst.join(".git").exists());
-        let _ = std::fs::remove_dir_all(&src);
-        let _ = std::fs::remove_dir_all(&dst);
+        cleanup(&src);
+        cleanup(&dst);
     }
 
     /// Hand-rolled git project (git2, no shell-out) with a configured identity
@@ -705,6 +705,6 @@ mod tests {
             .find(|p| p.module == Path::new("src/big.py"))
             .expect("persisted proposal");
         assert_eq!(stored.status, ProposalStatus::Accepted);
-        let _ = std::fs::remove_dir_all(&root);
+        cleanup(&root);
     }
 }
