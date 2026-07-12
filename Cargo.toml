@@ -3,9 +3,14 @@ name = "fract"
 version = "0.4.1"
 edition = "2021"
 authors = ["Fract Contributors"]
-description = "Autonomous architectural maintenance daemon for Rust projects"
+description = "Autonomous architectural maintenance daemon for Rust, Python, TypeScript, and JavaScript projects"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/fract-dev/fract"
+repository = "https://github.com/elci-group/fract"
+homepage = "https://github.com/elci-group/fract"
+documentation = "https://github.com/elci-group/fract#readme"
+keywords = ["refactoring", "static-analysis", "entropy", "daemon", "code-quality"]
+categories = ["development-tools"]
+rust-version = "1.96"
 
 [lints.clippy]
 # Pedantic lints are enforced project-wide; the allows below are the
