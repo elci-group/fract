@@ -485,4 +485,219 @@ mod tests {
         let _ = std::fs::remove_dir_all(&src);
         let _ = std::fs::remove_dir_all(&dst);
     }
+
+    /// Hand-rolled git project (git2, no shell-out) with a configured identity
+    /// and one committed file, for the merge-path tests.
+    fn git_project() -> PathBuf {
+        let dir = temp_dir();
+        let repo = git2::Repository::init(&dir).unwrap();
+        {
+            let mut cfg = repo.config().unwrap();
+            cfg.set_str("user.name", "fract-test").unwrap();
+            cfg.set_str("user.email", "fract-test@example.com").unwrap();
+        }
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/lib.rs"), "pub fn a() -> i32 { 1 }\n").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("src/lib.rs")).unwrap();
+        index.write().unwrap();
+        let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+        let sig = git2::Signature::new(
+            "fract-test",
+            "fract-test@example.com",
+            &git2::Time::new(1_700_000_000, 0),
+        )
+        .unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "init", &tree, &[])
+            .unwrap();
+        dir
+    }
+
+    fn accepted_proposal(id: &str, content: &str) -> Proposal {
+        Proposal {
+            id: id.to_string(),
+            created_at: SystemTime::UNIX_EPOCH,
+            module: PathBuf::from("src/lib.rs"),
+            kind: RefactorKind::ExtractFunction,
+            confidence: 0.95,
+            status: ProposalStatus::Accepted,
+            validation: None,
+            diff_summary: crate::DiffSummary::default(),
+            migration_notes: Vec::new(),
+            changed_files: vec![crate::ChangedFile {
+                path: PathBuf::from("src/lib.rs"),
+                content: content.to_string(),
+            }],
+            pr_body: None,
+            timeline: Vec::new(),
+        }
+    }
+
+    /// Enqueue a proposal and promote it to `Accepted` (enqueue forces Queued).
+    async fn enqueue_accepted(daemon: &Arc<Daemon>, proposal: Proposal) {
+        let id = proposal.id.clone();
+        daemon.queue.enqueue_proposal(proposal).await;
+        daemon
+            .queue
+            .update_proposal(&id, |p| p.status = ProposalStatus::Accepted)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn attempt_merges_passive_mode_is_a_noop() {
+        let root = git_project();
+        let daemon = Arc::new(Daemon::new(crate::config::Config::default_for(
+            root.clone(),
+        )));
+        enqueue_accepted(
+            &daemon,
+            accepted_proposal("fract-1", "pub fn b() -> i32 { 2 }\n"),
+        )
+        .await;
+        daemon.attempt_merges().await.unwrap();
+        let p = daemon.proposals().await.pop().unwrap();
+        assert_eq!(p.status, ProposalStatus::Accepted);
+        assert!(p.pr_body.is_none());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn attempt_merges_autonomous_commits_and_marks_merged() {
+        let root = git_project();
+        let mut cfg = crate::config::Config::default_for(root.clone());
+        cfg.mode = Mode::Autonomous;
+        cfg.quiet_period_secs = 0;
+        let daemon = Arc::new(Daemon::new(cfg));
+        enqueue_accepted(
+            &daemon,
+            accepted_proposal("fract-2", "pub fn b() -> i32 { 2 }\n"),
+        )
+        .await;
+        daemon.attempt_merges().await.unwrap();
+
+        let p = daemon.proposals().await.pop().unwrap();
+        assert_eq!(p.status, ProposalStatus::Merged);
+        let body = p.pr_body.expect("autonomous merge renders a PR body");
+        assert!(body.contains("fract/2"), "body: {body}");
+        // The commit landed on the per-proposal branch, never the original.
+        let repo = git2::Repository::open(&root).unwrap();
+        assert_eq!(repo.head().unwrap().shorthand().unwrap(), "fract/2");
+        let health = daemon.project_health().await;
+        assert_eq!(health.refactors_today.completed, 1);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn attempt_merges_assisted_prepares_branch_without_commit() {
+        let root = git_project();
+        let mut cfg = crate::config::Config::default_for(root.clone());
+        cfg.mode = Mode::Assisted;
+        cfg.quiet_period_secs = 0;
+        let daemon = Arc::new(Daemon::new(cfg));
+        enqueue_accepted(
+            &daemon,
+            accepted_proposal("fract-3", "pub fn b() -> i32 { 2 }\n"),
+        )
+        .await;
+        daemon.attempt_merges().await.unwrap();
+
+        let p = daemon.proposals().await.pop().unwrap();
+        assert_eq!(p.status, ProposalStatus::Accepted);
+        let body = p.pr_body.expect("assisted merge renders a PR body");
+        assert!(body.contains("fract/3"), "body: {body}");
+        assert!(p
+            .timeline
+            .iter()
+            .any(|e| e.message.contains("assisted mode")));
+        // Files were applied on the branch, but HEAD is still the init commit.
+        let repo = git2::Repository::open(&root).unwrap();
+        assert_eq!(repo.head().unwrap().shorthand().unwrap(), "fract/3");
+        let message = repo
+            .head()
+            .unwrap()
+            .peel_to_commit()
+            .unwrap()
+            .message()
+            .unwrap()
+            .to_string();
+        assert_eq!(message, "init");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn attempt_merges_marks_conflicting_proposal() {
+        let root = git_project();
+        let mut cfg = crate::config::Config::default_for(root.clone());
+        cfg.mode = Mode::Autonomous;
+        cfg.quiet_period_secs = 0;
+        let daemon = Arc::new(Daemon::new(cfg));
+        enqueue_accepted(
+            &daemon,
+            accepted_proposal("fract-4", "pub fn b() -> i32 { 2 }\n"),
+        )
+        .await;
+        // Dirty the target path so the conflict scan trips.
+        std::fs::write(root.join("src/lib.rs"), "pub fn local_edit() {}\n").unwrap();
+        daemon.attempt_merges().await.unwrap();
+
+        let p = daemon.proposals().await.pop().unwrap();
+        assert_eq!(p.status, ProposalStatus::Conflicts);
+        assert!(p.timeline.iter().any(|e| e.message.contains("Conflicts")));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// End-to-end queue processing against a real cargo project. Intentionally
+    /// slow (runs cargo fmt/clippy/check/test in a scratch copy) — the single
+    /// gated pipeline test, mirroring `validation`'s `validate_pipeline_*`.
+    #[tokio::test]
+    async fn process_queue_refactors_validates_and_accepts_candidate() {
+        let root = temp_dir();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"fract-pipeline-scratch\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/lib.rs"),
+            "//! Scratch lib.\n\n/// Adds one.\n#[must_use]\npub fn add_one(x: i32) -> i32 {\n    x + 1\n}\n",
+        )
+        .unwrap();
+        // ~600-line Python module: entropy ≈ 0.67 (measured via `fract index`),
+        // safely above the 0.6 threshold while lib.rs (≈ 0.50) stays below.
+        let mut big = String::new();
+        for i in 0..120 {
+            use std::fmt::Write as _;
+            let _ = writeln!(
+                big,
+                "def func_{i}(x):\n    if x > {i}:\n        return x + {i}\n    return x\n"
+            );
+        }
+        std::fs::write(root.join("src/big.py"), &big).unwrap();
+
+        let mut cfg = crate::config::Config::default_for(root.clone());
+        cfg.entropy_threshold = 0.6;
+        let daemon = Arc::new(Daemon::new(cfg));
+        daemon.refresh_index().await.unwrap();
+        daemon.process_queue().await.unwrap();
+
+        let proposals = daemon.proposals().await;
+        assert_eq!(proposals.len(), 1);
+        let p = &proposals[0];
+        assert_eq!(p.module, PathBuf::from("src/big.py"));
+        let report = p.validation.as_ref().expect("validation report recorded");
+        assert!(report.all_passed(), "logs: {:?}", report.logs);
+        // The mock engine only rewrites the Python file, which cargo never
+        // checks, so the scratch crate still builds and confidence clears the
+        // 0.90 default threshold. The queue entry is forced to `Queued` by
+        // `enqueue_proposal`; the real status lives on the persisted clone.
+        assert!(p.confidence >= 0.9, "confidence {}", p.confidence);
+        let persisted = daemon.store.load().proposals;
+        let stored = persisted
+            .iter()
+            .find(|p| p.module == Path::new("src/big.py"))
+            .expect("persisted proposal");
+        assert_eq!(stored.status, ProposalStatus::Accepted);
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

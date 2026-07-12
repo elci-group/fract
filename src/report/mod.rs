@@ -145,10 +145,12 @@ mod tests {
 
     #[test]
     fn color_choice_respects_no_color() {
-        std::env::set_var("NO_COLOR", "1");
-        let s = Style::detect(ColorChoice::Auto);
-        assert!(!s.color);
-        std::env::remove_var("NO_COLOR");
+        // Pure seam: no process-global env mutation (which races under
+        // parallel test execution and trips miri's race detector).
+        assert!(!Style::detect_auto(true, false, true).color);
+        assert!(!Style::detect_auto(false, true, true).color);
+        assert!(Style::detect_auto(false, false, true).color);
+        assert!(!Style::detect_auto(false, false, false).color);
     }
 
     #[test]

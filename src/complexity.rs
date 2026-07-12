@@ -120,4 +120,13 @@ mod tests {
         m.fan_in = 20;
         assert!(entropy(&m) > 0.80, "entropy was {}", entropy(&m));
     }
+
+    #[test]
+    fn zero_line_module_scores_zero_surface_and_duplication() {
+        let m = sample(0, 0, 0);
+        let e = entropy(&m);
+        // Only the always-0.5 sigmoid floors contribute: 0.3*0.5 + 0.2*0.5 +
+        // 0.1*0.5 = 0.3; the zero-guard branches contribute nothing.
+        assert!((e - 0.3).abs() < 1e-9, "entropy was {e}");
+    }
 }

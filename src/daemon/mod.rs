@@ -204,3 +204,108 @@ fn build_engine(llm: &crate::config::LlmConfig) -> Arc<dyn refactor::RefactorEng
         llm.max_tokens,
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::time::SystemTime;
+
+    fn temp_dir() -> PathBuf {
+        // Rust runs the test binary's tests in parallel threads within one
+        // process, so a pid-only name would collide. Mix in a per-call counter.
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("fract-daemon-test-{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn proposal_fixture(id: &str) -> Proposal {
+        Proposal {
+            id: id.to_string(),
+            created_at: SystemTime::UNIX_EPOCH,
+            module: PathBuf::from("src/lib.rs"),
+            kind: crate::RefactorKind::ExtractFunction,
+            confidence: 0.9,
+            status: crate::ProposalStatus::Accepted,
+            validation: None,
+            diff_summary: crate::DiffSummary::default(),
+            migration_notes: Vec::new(),
+            changed_files: Vec::new(),
+            pr_body: None,
+            timeline: Vec::new(),
+        }
+    }
+
+    fn event_fixture() -> Event {
+        Event {
+            at: SystemTime::UNIX_EPOCH,
+            kind: crate::EventKind::FileSaved,
+            path: Some(PathBuf::from("src/lib.rs")),
+        }
+    }
+
+    fn health_fixture(score: f64) -> ProjectHealth {
+        ProjectHealth {
+            score,
+            total_modules: 3,
+            healthy: 2,
+            warning: 1,
+            critical: 0,
+            entropy_trend: Vec::new(),
+            refactors_today: RefactorStats::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn restore_from_store_seeds_queue_events_and_health() {
+        let dir = temp_dir();
+        let store = Store::open(&dir);
+        store.append_proposal(&proposal_fixture("p1")).unwrap();
+        store.append_event(&event_fixture()).unwrap();
+        store.append_health(&health_fixture(88.0)).unwrap();
+
+        let daemon = Arc::new(Daemon::new(Config::default_for(dir.clone())));
+        daemon.restore_from_store().await;
+
+        let proposals = daemon.proposals().await;
+        assert_eq!(proposals.len(), 1);
+        assert_eq!(proposals[0].id, "p1");
+        assert_eq!(daemon.events(10).await.len(), 1);
+        assert!((daemon.project_health().await.score - 88.0).abs() < f64::EPSILON);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn build_engine_uses_mock_for_mock_or_empty_provider() {
+        for provider in ["mock", "MOCK", ""] {
+            let llm = crate::config::LlmConfig {
+                provider: provider.to_string(),
+                ..Default::default()
+            };
+            let _engine = build_engine(&llm);
+        }
+    }
+
+    #[test]
+    fn build_engine_http_branch_handles_endpoint_variants() {
+        for endpoint in [
+            None,
+            Some("https://example.test/v1".to_string()),
+            Some("http://127.0.0.1:11434/v1".to_string()),
+        ] {
+            let llm = crate::config::LlmConfig {
+                provider: "openai".to_string(),
+                model: "m".to_string(),
+                endpoint,
+                api_key: None,
+                max_tokens: 1_000,
+            };
+            let _engine = build_engine(&llm);
+        }
+    }
+}

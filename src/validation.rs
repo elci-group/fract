@@ -458,4 +458,20 @@ let s = "pub fn ghost()";
         assert_eq!(proposal.status, ProposalStatus::Rejected);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[tokio::test]
+    async fn api_check_accepts_absolute_changed_file_paths() {
+        let dir = temp_dir();
+        let proposal = proposal_fixture(
+            "src/lib.rs",
+            vec![ChangedFile {
+                path: dir.join("src/lib.rs"),
+                content: "pub fn a() {}\n".to_string(),
+            }],
+        );
+        let (compatible, logs) = check_api_compatibility(&dir, &proposal).await;
+        assert!(compatible);
+        assert!(logs.is_empty(), "logs: {logs:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

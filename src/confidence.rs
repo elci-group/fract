@@ -142,4 +142,29 @@ mod tests {
         let s = score(&module, &proposal, &validation);
         assert!(s < 0.85, "confidence was {s}");
     }
+
+    #[test]
+    fn negative_coverage_delta_scores_higher_than_positive() {
+        let module = sample_module();
+        let proposal = sample_proposal();
+        let base = ValidationReport {
+            fmt_ok: true,
+            clippy_ok: true,
+            check_ok: true,
+            test_ok: true,
+            api_compatible: true,
+            coverage_delta: 0.0,
+            complexity_delta: 0.0,
+            logs: vec![],
+        };
+        let negative = ValidationReport {
+            coverage_delta: -0.5,
+            ..base.clone()
+        };
+        let positive = ValidationReport {
+            coverage_delta: 0.5,
+            ..base
+        };
+        assert!(score(&module, &proposal, &negative) > score(&module, &proposal, &positive));
+    }
 }

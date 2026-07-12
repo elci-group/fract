@@ -352,4 +352,58 @@ mod tests {
             "default ignore patterns must exclude .fract/state.jsonl; got {patterns:?}"
         );
     }
+
+    fn health_fixture() -> ProjectHealth {
+        ProjectHealth {
+            score: 90.0,
+            total_modules: 1,
+            healthy: 1,
+            warning: 0,
+            critical: 0,
+            entropy_trend: Vec::new(),
+            refactors_today: crate::RefactorStats::default(),
+        }
+    }
+
+    #[test]
+    fn load_skips_malformed_typed_records() {
+        let dir = temp_dir();
+        let store = Store::open(&dir);
+        // Each line is valid JSON but fails record decoding: missing `type`,
+        // then one malformed record per known kind.
+        let contents = concat!(
+            "{\"v\":1}\n",
+            "{\"v\":1,\"type\":\"health\"}\n",
+            "{\"v\":1,\"type\":\"event\"}\n",
+            "{\"v\":1,\"type\":\"proposal\"}\n"
+        );
+        std::fs::write(dir.join(".fract").join("state.jsonl"), contents).unwrap();
+
+        let loaded = store.load();
+        assert!(loaded.proposals.is_empty());
+        assert!(loaded.events.is_empty());
+        assert!(loaded.health.is_none());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn append_event_and_async_helpers_roundtrip() {
+        let dir = temp_dir();
+        let store = Store::open(&dir);
+        let event = Event {
+            at: fixed_ts(1_700_000_000),
+            kind: crate::EventKind::FileSaved,
+            path: Some(PathBuf::from("src/lib.rs")),
+        };
+        store.append_event(&event).unwrap();
+        store.append_event_async(&event).await.unwrap();
+        store.append_health_async(&health_fixture()).await.unwrap();
+
+        let loaded = store.load_async().await;
+        assert_eq!(loaded.events.len(), 2);
+        assert!(loaded.health.is_some());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

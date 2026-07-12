@@ -194,4 +194,12 @@ mod tests {
         assert!(body.contains("git branch -D fract/1"));
         assert!(!body.contains("git revert"));
     }
+
+    #[test]
+    fn pr_body_without_sha_or_branch_suggests_discarding_changes() {
+        let body = render_pr_body(&sample(), "", "", "");
+        assert!(body.contains("Discard the working-tree changes"));
+        assert!(!body.contains("git revert"));
+        assert!(!body.contains("git checkout"));
+    }
 }

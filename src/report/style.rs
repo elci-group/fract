@@ -121,20 +121,31 @@ impl Style {
     /// Resolve the effective style from a color choice and the environment.
     #[must_use]
     pub fn detect(choice: ColorChoice) -> Self {
-        let color = match choice {
-            ColorChoice::Always => true,
-            ColorChoice::Never => false,
+        match choice {
+            ColorChoice::Always => Style {
+                color: true,
+                width: 100,
+            },
+            ColorChoice::Never => Style {
+                color: false,
+                width: 100,
+            },
             ColorChoice::Auto => {
                 let no_color = std::env::var_os("NO_COLOR").is_some();
                 let dumb = matches!(std::env::var("TERM").as_deref(), Ok("dumb"));
-                if no_color || dumb {
-                    false
-                } else {
-                    std::io::stdout().is_terminal()
-                }
+                Self::detect_auto(no_color, dumb, std::io::stdout().is_terminal())
             }
-        };
-        Style { color, width: 100 }
+        }
+    }
+
+    /// Pure core of `detect` for the `Auto` case, with the environment passed
+    /// in explicitly so tests don't need to mutate process-global env state.
+    #[must_use]
+    pub(crate) fn detect_auto(no_color: bool, dumb_term: bool, is_terminal: bool) -> Self {
+        Style {
+            color: !no_color && !dumb_term && is_terminal,
+            width: 100,
+        }
     }
 }
 

@@ -254,3 +254,67 @@ impl<'a> Parser<'a> {
         Some(c)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unexpected_token_reports_position() {
+        let err = parse("x").unwrap_err();
+        assert!(err.contains("unexpected 'x'"), "{err}");
+    }
+
+    #[test]
+    fn literal_mismatch_and_eof_are_errors() {
+        assert!(parse("nux").is_err());
+        assert!(parse("nul").is_err());
+        let err = parse("truX").unwrap_err();
+        assert!(err.contains("expected"), "{err}");
+    }
+
+    #[test]
+    fn array_separator_and_termination_errors() {
+        let err = parse("[1 2]").unwrap_err();
+        assert!(err.contains("',' or ']'"), "{err}");
+        let err = parse("[1").unwrap_err();
+        assert!(err.contains("unterminated array"), "{err}");
+    }
+
+    #[test]
+    fn object_separator_and_termination_errors() {
+        let err = parse("{\"a\":1 \"b\":2}").unwrap_err();
+        assert!(err.contains("',' or '}'"), "{err}");
+        let err = parse("{\"a\":1").unwrap_err();
+        assert!(err.contains("unterminated object"), "{err}");
+    }
+
+    #[test]
+    fn decodes_remaining_standard_escapes() {
+        let v = parse("\"a\\/b\\fc\\rd\\be\"").unwrap();
+        assert_eq!(v, Value::String("a/b\u{000C}c\rd\u{0008}e".into()));
+    }
+
+    #[test]
+    fn rejects_invalid_surrogate_pair() {
+        assert!(parse("\"\\uD83D\\u0041\"").is_err());
+    }
+
+    #[test]
+    fn rejects_lone_low_surrogate() {
+        let err = parse("\"\\uDC00\"").unwrap_err();
+        assert!(err.contains("invalid unicode scalar"), "{err}");
+    }
+
+    #[test]
+    fn rejects_unknown_escape() {
+        let err = parse("\"a\\qb\"").unwrap_err();
+        assert!(err.contains("invalid escape"), "{err}");
+    }
+
+    #[test]
+    fn accepts_uppercase_hex_digits() {
+        let v = parse("\"\\u00E9\"").unwrap();
+        assert_eq!(v, Value::String("é".into()));
+    }
+}

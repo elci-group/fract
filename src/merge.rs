@@ -431,4 +431,86 @@ mod tests {
         assert_eq!(branch_name("fract-42"), "fract/42");
         assert_eq!(branch_name("abc"), "fract/abc");
     }
+
+    fn safety(stable: bool, last_edit: Option<SystemTime>, conflicts: bool) -> MergeSafety {
+        MergeSafety {
+            quiet_period: Duration::from_mins(1),
+            stable,
+            last_edit,
+            conflicts,
+        }
+    }
+
+    #[test]
+    fn can_merge_matrix() {
+        // Conflicts dominate every other signal.
+        assert!(!safety(true, None, true).can_merge());
+        // A stable tree merges immediately.
+        assert!(safety(true, None, false).can_merge());
+        // Unstable but quiet for longer than the quiet period → safe.
+        let old = SystemTime::now() - Duration::from_hours(1);
+        assert!(safety(false, Some(old), false).can_merge());
+        // Unstable with a fresh edit inside the quiet period → wait.
+        assert!(!safety(false, Some(SystemTime::now()), false).can_merge());
+        // No stability and no edit information → not safe.
+        assert!(!safety(false, None, false).can_merge());
+    }
+
+    #[tokio::test]
+    async fn assess_clean_repo_is_stable_without_conflicts() {
+        let (dir, _repo, _orig) = temp_repo("assess-clean", true);
+        let p = proposal("pub fn b() -> i32 { 2 }\n");
+        let safety = assess(&dir, &p, Duration::from_secs(0)).await.unwrap();
+        assert!(safety.stable);
+        assert!(!safety.conflicts);
+        assert!(safety.last_edit.is_some());
+        assert!(safety.can_merge());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn assess_flags_uncommitted_changes_as_conflicts() {
+        let (dir, _repo, _orig) = temp_repo("assess-dirty", true);
+        let p = proposal("pub fn b() -> i32 { 2 }\n");
+        std::fs::write(dir.join("src/lib.rs"), "pub fn local() {}\n").unwrap();
+        let safety = assess(&dir, &p, Duration::from_secs(0)).await.unwrap();
+        assert!(!safety.stable);
+        assert!(safety.conflicts);
+        assert!(!safety.can_merge());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn file_map_collects_files_and_counts_additions() {
+        let files = vec![
+            (PathBuf::from("a.rs"), "one".to_string()),
+            (PathBuf::from("b.rs"), "two".to_string()),
+        ];
+        let mut diff = DiffSummary::default();
+        let map = file_map(&files, &mut diff);
+        assert_eq!(map.len(), 2);
+        assert_eq!(map[&PathBuf::from("b.rs")], "two");
+        assert_eq!(diff.files_added, 1);
+    }
+
+    #[test]
+    fn changed_paths_falls_back_to_module_when_no_changed_files() {
+        let mut p = proposal("x");
+        p.changed_files.clear();
+        assert_eq!(changed_paths(&p), vec![PathBuf::from("src/lib.rs")]);
+        assert_eq!(
+            changed_paths(&proposal("x")),
+            vec![PathBuf::from("src/lib.rs")]
+        );
+    }
+
+    #[test]
+    fn diff_last_commit_on_initial_commit_shows_full_addition() {
+        // With no parent commit the diff is empty-tree → HEAD, i.e. every
+        // line of the initial commit rendered as an addition.
+        let (dir, _repo, _orig) = temp_repo("diff-initial", true);
+        let diff = diff_last_commit(&dir).unwrap();
+        assert!(diff.contains("+pub fn a()"), "diff: {diff}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

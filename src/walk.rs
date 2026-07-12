@@ -375,4 +375,43 @@ mod tests {
         let _ = fs::set_permissions(root.join("locked"), fs::Permissions::from_mode(0o755));
         let _ = fs::remove_dir_all(&root);
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_files_and_dirs_are_walked_without_looping() {
+        use std::os::unix::fs::symlink;
+        let root = temp_tree("walk_symlink");
+        fs::create_dir_all(root.join("real")).unwrap();
+        fs::write(root.join("real/inner.txt"), "").unwrap();
+        fs::write(root.join("top.txt"), "").unwrap();
+        symlink(root.join("real/inner.txt"), root.join("link_file.txt")).unwrap();
+        symlink(root.join("real"), root.join("link_dir")).unwrap();
+        // A loop (a -> b -> a) must not hang the walker; the dangling target
+        // fails metadata and is skipped.
+        symlink(root.join("a_loop"), root.join("b_loop")).unwrap();
+        symlink(root.join("b_loop"), root.join("a_loop")).unwrap();
+
+        let mut paths: Vec<PathBuf> = Walk::new(root.clone(), Vec::new())
+            .files()
+            .map(|r| r.unwrap())
+            .collect();
+        paths.sort();
+        assert!(paths.iter().any(|p| p.ends_with("top.txt")));
+        assert!(paths.iter().any(|p| p.ends_with("link_file.txt")));
+        // `real` and `link_dir` share an inode: whichever the walker reaches
+        // first wins, so `inner.txt` appears under at least one of them.
+        let inner_count = paths.iter().filter(|p| p.ends_with("inner.txt")).count();
+        assert!((1..=2).contains(&inner_count), "paths: {paths:?}");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn missing_root_yields_a_single_error_entry() {
+        let root = temp_tree("walk_missing");
+        fs::remove_dir_all(&root).unwrap();
+        let mut iter = Walk::new(root, Vec::new()).files();
+        assert!(iter.next().unwrap().is_err());
+        assert!(iter.next().is_none());
+    }
 }

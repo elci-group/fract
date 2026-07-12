@@ -330,3 +330,117 @@ impl From<Value> for Json {
         Json(value)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accessors_match_their_variant() {
+        let s = Value::String("x".into());
+        assert_eq!(s.as_str(), Some("x"));
+        assert_eq!(s.as_f64(), None);
+        assert_eq!(s.as_bool(), None);
+        assert_eq!(s.as_array(), None);
+
+        let n = Value::Number(2.5);
+        assert_eq!(n.as_f64(), Some(2.5));
+        assert_eq!(n.as_str(), None);
+
+        let b = Value::Bool(true);
+        assert_eq!(b.as_bool(), Some(true));
+        assert_eq!(b.as_f64(), None);
+
+        let a = Value::Array(vec![Value::Null]);
+        assert_eq!(a.as_array(), Some(&[Value::Null][..]));
+        assert_eq!(a.as_str(), None);
+
+        assert_eq!(Value::Null.as_str(), None);
+        assert_eq!(Value::Null.as_bool(), None);
+    }
+
+    #[test]
+    fn get_finds_object_keys() {
+        let mut o = Value::object();
+        o.insert("a", 1);
+        assert_eq!(o.get("a"), Some(&Value::Number(1.0)));
+        assert_eq!(o.get("missing"), None);
+        assert_eq!(Value::Null.get("a"), None);
+    }
+
+    #[test]
+    #[should_panic(expected = "insert called on a non-object value")]
+    fn insert_on_non_object_panics() {
+        let mut v = Value::Null;
+        v.insert("a", 1);
+    }
+
+    #[test]
+    fn crate_helpers_mirror_inherent_accessors() {
+        let mut o = Value::object();
+        o.insert("name", "fract");
+        o.insert("n", 3);
+        let entries = as_object(&o).unwrap();
+        assert_eq!(as_str(o.get("name").unwrap()), Some("fract"));
+        assert_eq!(get(entries, "n"), Some(&Value::Number(3.0)));
+        assert_eq!(get_str(entries, "name"), Some("fract"));
+        assert_eq!(get_str(entries, "n"), None);
+        assert!(as_object(&Value::Null).is_none());
+        assert!(as_array(&Value::Null).is_none());
+        assert!(as_str(&Value::Null).is_none());
+        let arr = Value::Array(vec![Value::Bool(true)]);
+        assert_eq!(as_array(&arr).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn write_escapes_formfeed_and_carriage_return() {
+        let v = Value::String("a\u{000C}b\rc".into());
+        assert_eq!(v.to_string(), "\"a\\fb\\rc\"");
+    }
+
+    #[test]
+    fn from_impls_cover_all_scalar_types() {
+        assert_eq!(Value::from(5i64), Value::Number(5.0));
+        assert_eq!(Value::from(5i128), Value::Number(5.0));
+        assert_eq!(Value::from(5isize), Value::Number(5.0));
+        assert_eq!(Value::from(5u64), Value::Number(5.0));
+        assert_eq!(Value::from(5u128), Value::Number(5.0));
+        assert_eq!(Value::from(5usize), Value::Number(5.0));
+        assert_eq!(Value::from(5i8), Value::Number(5.0));
+        assert_eq!(Value::from(5i16), Value::Number(5.0));
+        assert_eq!(Value::from(5i32), Value::Number(5.0));
+        assert_eq!(Value::from(5u8), Value::Number(5.0));
+        assert_eq!(Value::from(5u16), Value::Number(5.0));
+        assert_eq!(Value::from(5u32), Value::Number(5.0));
+        assert_eq!(Value::from(0.5f32), Value::Number(0.5));
+        assert_eq!(Value::from(0.5f64), Value::Number(0.5));
+        assert_eq!(Value::from(true), Value::Bool(true));
+        assert_eq!(Value::from("s".to_string()), Value::String("s".into()));
+        assert_eq!(Value::from("s"), Value::String("s".into()));
+        assert_eq!(
+            Value::from(vec![1i32, 2]),
+            Value::Array(vec![Value::Number(1.0), Value::Number(2.0)])
+        );
+        assert_eq!(
+            Value::from([true, false]),
+            Value::Array(vec![Value::Bool(true), Value::Bool(false)])
+        );
+    }
+
+    #[test]
+    fn serializing_a_value_round_trips_through_to_value() {
+        let mut o = Value::object();
+        o.insert("arr", Value::Array(vec![Value::Number(1.0), Value::Null]));
+        o.insert("s", "x");
+        o.insert("b", true);
+        o.insert("n", Value::Number(2.5));
+        o.insert("null", Value::Null);
+        assert_eq!(crate::json::to_value(o.clone()), o);
+    }
+
+    #[test]
+    fn json_wrapper_from_value() {
+        let j = Json::from(Value::Bool(true));
+        assert_eq!(j.0, Value::Bool(true));
+    }
+}

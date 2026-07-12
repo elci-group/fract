@@ -256,4 +256,60 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    fn temp_dir() -> PathBuf {
+        // Rust runs the test binary's tests in parallel threads within one
+        // process, so a pid-only name would collide. Mix in a per-call counter.
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("fract-indexer-test-{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn index_handles_python_typescript_and_unsupported_files() {
+        let dir = temp_dir();
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/a.py"), "def f(x):\n    return x\n").unwrap();
+        std::fs::write(
+            dir.join("src/b.ts"),
+            "export function g(x: number): number {\n    return x;\n}\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("src/notes.txt"), "ignore me\n").unwrap();
+
+        let indexer = Indexer::new(dir.clone(), Vec::new());
+        let modules = indexer.index().unwrap();
+        assert_eq!(modules.len(), 2, "the .txt file must be skipped");
+        assert!(modules.iter().any(|m| m.language == Language::Python));
+        assert!(modules.iter().any(|m| m.language == Language::TypeScript));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn index_file_resolves_relative_paths_and_treats_missing_as_removal() {
+        let dir = temp_dir();
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/c.rs"), "pub fn c() {}\n").unwrap();
+
+        let indexer = Indexer::new(dir.clone(), Vec::new());
+        // Relative paths resolve against the root.
+        let module = indexer
+            .index_file(Path::new("src/c.rs"))
+            .unwrap()
+            .expect("module");
+        assert_eq!(module.path, PathBuf::from("src/c.rs"));
+        // A supported file that vanished is treated as a removal.
+        assert!(indexer
+            .index_file(Path::new("src/gone.rs"))
+            .unwrap()
+            .is_none());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

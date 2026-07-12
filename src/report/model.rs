@@ -248,3 +248,164 @@ pub fn suggest_kind(m: &Module) -> RefactorKind {
         RefactorKind::ExtractFunction
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Language;
+    use std::time::SystemTime;
+
+    fn module(path: &str, entropy: f64, health: Health) -> Module {
+        Module {
+            path: PathBuf::from(path),
+            language: Language::Rust,
+            lines: 100,
+            functions: 10,
+            cyclomatic_complexity: 5,
+            public_api_size: 4,
+            fan_out: 2,
+            fan_in: 1,
+            duplicates: 0,
+            edit_frequency: 0.0,
+            confidence: Some(0.75),
+            churn: 0,
+            test_coverage: 0.0,
+            entropy,
+            health,
+            last_modified: SystemTime::UNIX_EPOCH,
+        }
+    }
+
+    #[test]
+    fn severity_labels_and_sarif_levels() {
+        for (severity, label, level) in [
+            (Severity::Info, "info", "note"),
+            (Severity::Warning, "warning", "warning"),
+            (Severity::Critical, "critical", "error"),
+        ] {
+            assert_eq!(severity.label(), label);
+            assert_eq!(severity.sarif_level(), level);
+        }
+    }
+
+    #[test]
+    fn severity_from_health_bands() {
+        assert_eq!(Severity::from(Health::Excellent), Severity::Info);
+        assert_eq!(Severity::from(Health::Healthy), Severity::Info);
+        assert_eq!(Severity::from(Health::Warning), Severity::Warning);
+        assert_eq!(Severity::from(Health::Critical), Severity::Critical);
+    }
+
+    #[test]
+    fn finding_under_threshold_is_informational() {
+        let m = module("src/ok.rs", 0.3, Health::Excellent);
+        let f = Finding::from_module(&m, 0.82);
+        assert_eq!(f.severity, Severity::Info);
+        assert!(f.message.contains("Within entropy budget"), "{}", f.message);
+        assert!(f.why.contains("below threshold"), "{}", f.why);
+        assert_eq!(f.next_action, "No action required");
+        assert_eq!(f.confidence, Some(0.75));
+        assert_eq!(f.evidence.len(), 8);
+    }
+
+    #[test]
+    fn finding_over_threshold_is_a_warning() {
+        let m = module("src/warn.rs", 0.9, Health::Warning);
+        let f = Finding::from_module(&m, 0.82);
+        assert_eq!(f.severity, Severity::Warning);
+        assert!(
+            f.message.contains("Over entropy threshold"),
+            "{}",
+            f.message
+        );
+        assert!(f.why.contains("exceeds threshold"), "{}", f.why);
+        assert_eq!(f.next_action, f.kind);
+    }
+
+    #[test]
+    fn critical_health_escalates_even_below_threshold() {
+        let m = module("src/crit.rs", 0.5, Health::Critical);
+        let f = Finding::from_module(&m, 0.82);
+        assert_eq!(f.severity, Severity::Critical);
+        assert!(
+            f.message.contains("Critical structural entropy"),
+            "{}",
+            f.message
+        );
+    }
+
+    #[test]
+    fn summary_counts_bands_and_scores() {
+        let modules = [
+            module("a.rs", 0.1, Health::Excellent),
+            module("b.rs", 0.5, Health::Healthy),
+            module("c.rs", 0.7, Health::Warning),
+            module("d.rs", 0.9, Health::Critical),
+        ];
+        let s = Summary::from_modules(&modules);
+        assert_eq!(s.total, 4);
+        assert_eq!(s.excellent, 1);
+        assert_eq!(s.healthy, 1);
+        assert_eq!(s.warning, 1);
+        assert_eq!(s.critical, 1);
+        // (2*1.0 + 1*0.6 + 1*0.2) / 4 * 100 = 70
+        assert!((s.score - 70.0).abs() < 1e-9, "score {}", s.score);
+
+        let empty = Summary::from_modules(&[]);
+        assert_eq!(empty.total, 0);
+        assert!((empty.score - 100.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn report_orders_findings_and_applies_budget() {
+        let modules = [
+            module("low.rs", 0.2, Health::Healthy),
+            module("high.rs", 0.95, Health::Critical),
+            module("mid.rs", 0.6, Health::Healthy),
+        ];
+        let mut report = Report::from_modules(Path::new("/tmp/x"), &modules, 0.82, false);
+        assert_eq!(report.findings[0].module, PathBuf::from("high.rs"));
+        assert_eq!(report.findings.len(), 3);
+        report.apply_budget(1);
+        assert_eq!(report.findings.len(), 1);
+        assert_eq!(
+            report.summary.total, 3,
+            "budget trims findings, not the summary"
+        );
+        // A zero budget disables truncation entirely.
+        let mut report = Report::from_modules(Path::new("/tmp/x"), &modules, 0.82, false);
+        report.apply_budget(0);
+        assert_eq!(report.findings.len(), 3);
+    }
+
+    #[test]
+    fn report_over_only_drops_informational_findings() {
+        let modules = [
+            module("low.rs", 0.2, Health::Healthy),
+            module("high.rs", 0.95, Health::Critical),
+        ];
+        let report = Report::from_modules(Path::new("/tmp/x"), &modules, 0.82, true);
+        assert_eq!(report.findings.len(), 1);
+        assert_eq!(report.findings[0].module, PathBuf::from("high.rs"));
+    }
+
+    #[test]
+    fn suggest_kind_matches_pipeline_classifier() {
+        let mut m = module("m.rs", 0.9, Health::Warning);
+        assert_eq!(suggest_kind(&m), RefactorKind::ExtractFunction);
+        m.lines = 1_501;
+        assert_eq!(suggest_kind(&m), RefactorKind::SplitModule);
+        m.lines = 0;
+        m.functions = 41;
+        assert_eq!(suggest_kind(&m), RefactorKind::SplitModule);
+        m.functions = 0;
+        m.duplicates = 11;
+        assert_eq!(suggest_kind(&m), RefactorKind::RemoveDuplication);
+        m.duplicates = 0;
+        m.public_api_size = 31;
+        assert_eq!(suggest_kind(&m), RefactorKind::ReduceSurface);
+        m.public_api_size = 0;
+        m.fan_out = 16;
+        assert_eq!(suggest_kind(&m), RefactorKind::ReorderDependencies);
+    }
+}
