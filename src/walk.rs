@@ -414,4 +414,180 @@ mod tests {
         assert!(iter.next().unwrap().is_err());
         assert!(iter.next().is_none());
     }
+
+    // --- glob_match property/invariant suites (hand-rolled, deterministic LCG) ---
+
+    struct Rng(u64);
+
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 = self
+                .0
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            self.0 >> 33
+        }
+
+        fn below(&mut self, n: u64) -> u64 {
+            self.next() % n
+        }
+    }
+
+    /// Single path segment: 1-8 lowercase letters/digits (no glob chars, no `/`).
+    fn gen_segment(rng: &mut Rng) -> String {
+        const ALPHA: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
+        let len = 1 + usize::try_from(rng.below(8)).unwrap();
+        (0..len)
+            .map(|_| char::from(ALPHA[usize::try_from(rng.below(ALPHA.len() as u64)).unwrap()]))
+            .collect()
+    }
+
+    /// Relative path of 1-4 segments.
+    fn gen_path(rng: &mut Rng) -> String {
+        let segments = 1 + usize::try_from(rng.below(4)).unwrap();
+        (0..segments)
+            .map(|_| gen_segment(rng))
+            .collect::<Vec<_>>()
+            .join("/")
+    }
+
+    #[test]
+    fn prop_glob_literal_paths_match_themselves() {
+        let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
+        for _ in 0..50 {
+            let p = gen_path(&mut rng);
+            assert!(glob_match(&p, &p), "literal path {p} must match itself");
+            // A pair with a differing literal or different segment count must
+            // not match: without wildcards glob_match is exact string equality.
+            let mut segments: Vec<String> = p.split('/').map(str::to_string).collect();
+            if rng.below(2) == 0 {
+                let i = usize::try_from(rng.below(segments.len() as u64)).unwrap();
+                segments[i].push('z');
+            } else {
+                segments.push(gen_segment(&mut rng));
+            }
+            let q = segments.join("/");
+            assert_ne!(p, q);
+            assert!(
+                !glob_match(&p, &q),
+                "distinct literal paths {p} and {q} must not match"
+            );
+        }
+    }
+
+    #[test]
+    fn prop_glob_star_ext_matches_single_segment_only() {
+        let mut rng = Rng(0x1234_5678_9abc_def0);
+        for _ in 0..50 {
+            let path = format!("{}.rs", gen_segment(&mut rng));
+            assert!(glob_match(&path, "*.rs"), "{path} must match *.rs");
+            // The same name nested one level down must never match.
+            let nested = format!("{}/{path}", gen_segment(&mut rng));
+            assert!(!glob_match(&nested, "*.rs"), "{nested} must not match *.rs");
+        }
+        assert!(!glob_match("foo.md", "*.rs"));
+        assert!(!glob_match("foo", "*.rs"));
+    }
+
+    #[test]
+    fn prop_glob_double_star_matches_everything() {
+        assert!(glob_match("", "**"));
+        assert!(glob_match("a", "**"));
+        assert!(glob_match("a/b/c/d", "**"));
+        let mut rng = Rng(0xabcd_ef01_2345_6789);
+        for _ in 0..50 {
+            let p = gen_path(&mut rng);
+            assert!(glob_match(&p, "**"), "{p} must match **");
+        }
+    }
+
+    #[test]
+    fn prop_glob_leading_slash_is_ignored() {
+        let mut rng = Rng(0x0fed_cba9_8765_4321);
+        let patterns = ["*.rs", "src/*.rs", "a?c", "**", "literal/path"];
+        for _ in 0..50 {
+            let p = gen_path(&mut rng);
+            for pat in patterns {
+                let slashed = format!("/{pat}");
+                assert_eq!(
+                    glob_match(&p, pat),
+                    glob_match(&p, &slashed),
+                    "leading slash changed result for path {p} pattern {pat}"
+                );
+            }
+            // Also a generated literal pattern (literal-vs-literal case).
+            let literal = gen_path(&mut rng);
+            let slashed = format!("/{literal}");
+            assert_eq!(
+                glob_match(&p, &literal),
+                glob_match(&p, &slashed),
+                "leading slash changed result for path {p} pattern {literal}"
+            );
+        }
+    }
+
+    #[test]
+    fn prop_glob_question_consumes_exactly_one_char() {
+        let mut rng = Rng(0x5555_aaaa_3333_cccc);
+        for _ in 0..50 {
+            // Segments are ASCII, so byte indices are char boundaries.
+            let seg = gen_segment(&mut rng);
+            let i = usize::try_from(rng.below(seg.len() as u64)).unwrap();
+            let pat = format!("{}?{}", &seg[..i], &seg[i + 1..]);
+            assert!(
+                glob_match(&seg, &pat),
+                "? must match the single char at {i} in {seg} (pattern {pat})"
+            );
+            // Every pattern char consumes exactly one string char, so any
+            // candidate whose length differs from the pattern can never match.
+            let shorter = format!("{}{}", &seg[..i], &seg[i + 1..]);
+            let longer = format!("{}x{}", &seg[..=i], &seg[i + 1..]);
+            assert!(
+                !glob_match(&shorter, &pat),
+                "shorter candidate {shorter} must not match {pat}"
+            );
+            assert!(
+                !glob_match(&longer, &pat),
+                "longer candidate {longer} must not match {pat}"
+            );
+        }
+    }
+
+    #[test]
+    fn prop_glob_adversarial_patterns_never_panic() {
+        let long_literal = "a".repeat(200);
+        let many_stars = "*".repeat(50);
+        let long_path = "a".repeat(16);
+        let patterns = [
+            "******",
+            "*?*?*",
+            "a********b",
+            "??????????",
+            "**a**b**",
+            "*a*a*a*a*a*",
+            long_literal.as_str(),
+            many_stars.as_str(),
+        ];
+        let paths = [
+            "",
+            "a",
+            "ab",
+            "aaaaab",
+            "aaaaaa",
+            "abababab",
+            "a/a/a",
+            "nested/deep/path",
+            "xxxxxxxxxxxx",
+            long_path.as_str(),
+        ];
+        for pat in patterns {
+            for path in paths {
+                let result = std::panic::catch_unwind(|| glob_match(path, pat));
+                assert!(
+                    result.is_ok(),
+                    "glob_match panicked on path {path:?} pattern {pat:?}"
+                );
+            }
+        }
+    }
 }

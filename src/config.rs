@@ -149,17 +149,26 @@ impl Config {
     }
 }
 
+/// Default entropy at or above which a module becomes a refactor candidate.
+const DEFAULT_ENTROPY_THRESHOLD: f64 = 0.82;
+/// Default minimum confidence for a proposal to be accepted.
+const DEFAULT_CONFIDENCE_THRESHOLD: f64 = 0.9;
+/// Default token budget for a single engine completion.
+const DEFAULT_MAX_TOKENS: usize = 32768;
+/// Default dashboard/API bind address (loopback only).
+const DEFAULT_BIND: &str = "127.0.0.1:7345";
+
 fn default_entropy_threshold() -> f64 {
-    0.82
+    DEFAULT_ENTROPY_THRESHOLD
 }
 fn default_confidence_threshold() -> f64 {
-    0.90
+    DEFAULT_CONFIDENCE_THRESHOLD
 }
 fn default_quiet_period_secs() -> u64 {
     120
 }
 fn default_bind() -> String {
-    "127.0.0.1:7345".to_string()
+    DEFAULT_BIND.to_string()
 }
 fn default_output_format() -> String {
     "human".to_string()
@@ -180,7 +189,7 @@ fn default_llm_model() -> String {
     "gpt-oss-120b".to_string()
 }
 fn default_max_tokens() -> usize {
-    32768
+    DEFAULT_MAX_TOKENS
 }
 
 fn default_watch_patterns() -> Vec<String> {

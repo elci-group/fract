@@ -114,6 +114,15 @@ impl Daemon {
     }
 }
 
+/// Per-module weight of a healthy module in the health score.
+const HEALTHY_SCORE_WEIGHT: f64 = 1.0;
+/// Per-module weight of a warning-band module in the health score.
+const WARNING_SCORE_WEIGHT: f64 = 0.6;
+/// Per-module weight of a critical module in the health score.
+const CRITICAL_SCORE_WEIGHT: f64 = 0.2;
+/// Maximum number of entries retained in the entropy trend (oldest evicted).
+const ENTROPY_TREND_CAP: usize = 100;
+
 pub(crate) fn recompute_health(modules: &[Module], prev: &ProjectHealth) -> ProjectHealth {
     let (healthy, warning, critical) =
         modules
@@ -127,11 +136,15 @@ pub(crate) fn recompute_health(modules: &[Module], prev: &ProjectHealth) -> Proj
     let score = if total == 0 {
         100.0
     } else {
-        (healthy as f64 * 1.0 + warning as f64 * 0.6 + critical as f64 * 0.2) / total as f64 * 100.0
+        (healthy as f64 * HEALTHY_SCORE_WEIGHT
+            + warning as f64 * WARNING_SCORE_WEIGHT
+            + critical as f64 * CRITICAL_SCORE_WEIGHT)
+            / total as f64
+            * 100.0
     };
     let mut trend = prev.entropy_trend.clone();
     trend.push((now(), avg_entropy(modules)));
-    if trend.len() > 100 {
+    if trend.len() > ENTROPY_TREND_CAP {
         trend.remove(0);
     }
     ProjectHealth {

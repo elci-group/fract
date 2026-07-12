@@ -222,8 +222,10 @@ fn commit_sync(root: &Path, proposal: &mut Proposal, message: &str) -> Result<St
 }
 
 /// Render a unified diff between the last commit and its parent — i.e. the
-/// change the proposal just introduced. Returns an empty string when there is
-/// no parent (initial commit) so rendering never fails the merge.
+/// change the proposal just introduced. When there is no parent (initial
+/// commit), the parent side is the empty tree, so the diff is a full-addition
+/// patch showing every line of the commit as new — exactly what a PR body
+/// should contain for a first commit.
 ///
 /// # Errors
 /// Returns an error if the repository cannot be opened, `HEAD` or its tree

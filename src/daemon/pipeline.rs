@@ -8,8 +8,8 @@ use crate::error::{Context, Result};
 use crate::scratch;
 use crate::time::now;
 use crate::{
-    confidence, config::Mode, merge, refactor, validation, Module, Proposal, ProposalStatus,
-    RefactorKind, TimelineEvent, ValidationReport,
+    confidence, config::Mode, merge, refactor, validation, Module, ProjectHealth, Proposal,
+    ProposalStatus, RefactorKind, TimelineEvent, ValidationReport,
 };
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -39,13 +39,7 @@ impl Daemon {
         let health_snapshot = health.clone();
         drop(health);
 
-        if let Err(e) = self.store.append_health_async(&health_snapshot).await {
-            warn!(
-                event = "store.append_failed",
-                error = %e,
-                "failed to persist health snapshot"
-            );
-        }
+        persist_health_snapshot(&self.store, &health_snapshot).await;
 
         let mut stored = self.modules.write().await;
         *stored = modules;
@@ -103,14 +97,7 @@ impl Daemon {
 
             let persisted = proposal.clone();
             self.queue.enqueue_proposal(proposal).await;
-            if let Err(e) = self.store.append_proposal_async(&persisted).await {
-                warn!(
-                    event = "store.append_failed",
-                    proposal = %persisted.id,
-                    error = %e,
-                    "failed to persist proposal"
-                );
-            }
+            persist_proposal(&self.store, &persisted).await;
 
             // Clean up scratch.
             let _ = tokio::fs::remove_dir_all(&scratch).await;
@@ -218,22 +205,9 @@ impl Daemon {
                 .update_proposal(&proposal.id, |p| *p = proposal.clone())
                 .await;
 
-            if let Err(e) = self.store.append_proposal_async(&proposal).await {
-                warn!(
-                    event = "store.append_failed",
-                    proposal = %proposal.id,
-                    error = %e,
-                    "failed to persist proposal"
-                );
-            }
+            persist_proposal(&self.store, &proposal).await;
             let health_snapshot = self.project_health.read().await.clone();
-            if let Err(e) = self.store.append_health_async(&health_snapshot).await {
-                warn!(
-                    event = "store.append_failed",
-                    error = %e,
-                    "failed to persist health snapshot"
-                );
-            }
+            persist_health_snapshot(&self.store, &health_snapshot).await;
         }
         Ok(())
     }
@@ -267,28 +241,57 @@ impl Daemon {
             proposal.confidence = confidence::score(&module, &proposal, &report);
             proposal.status = ProposalStatus::Detected;
             self.queue.enqueue_proposal(proposal.clone()).await;
-            if let Err(e) = self.store.append_proposal_async(&proposal).await {
-                warn!(
-                    event = "store.append_failed",
-                    proposal = %proposal.id,
-                    error = %e,
-                    "failed to persist proposal"
-                );
-            }
+            persist_proposal(&self.store, &proposal).await;
             produced.push(proposal);
         }
         Ok(produced)
     }
 }
 
+/// Line count above which a module is split rather than refactored in place.
+const SPLIT_LINES_THRESHOLD: usize = 1500;
+/// Function count above which a module is split rather than refactored in place.
+const SPLIT_FUNCTIONS_THRESHOLD: usize = 40;
+/// Duplicate-line count that triggers a deduplication proposal.
+const DUPLICATES_THRESHOLD: usize = 10;
+/// Public-API size that triggers a surface-reduction proposal.
+const API_SIZE_THRESHOLD: usize = 30;
+/// Fan-out that triggers a dependency-reordering proposal.
+const FAN_OUT_THRESHOLD: usize = 15;
+
+/// Persist a proposal to the journal, logging (not propagating) failure: the
+/// store is a cache, so a failed append must never abort the pipeline.
+async fn persist_proposal(store: &crate::store::Store, proposal: &Proposal) {
+    if let Err(e) = store.append_proposal_async(proposal).await {
+        warn!(
+            event = "store.append_failed",
+            proposal = %proposal.id,
+            error = %e,
+            "failed to persist proposal"
+        );
+    }
+}
+
+/// Persist a health snapshot to the journal, logging (not propagating)
+/// failure — same rationale as [`persist_proposal`].
+async fn persist_health_snapshot(store: &crate::store::Store, health: &ProjectHealth) {
+    if let Err(e) = store.append_health_async(health).await {
+        warn!(
+            event = "store.append_failed",
+            error = %e,
+            "failed to persist health snapshot"
+        );
+    }
+}
+
 fn classify_kind(module: &Module) -> RefactorKind {
-    if module.lines > 1500 || module.functions > 40 {
+    if module.lines > SPLIT_LINES_THRESHOLD || module.functions > SPLIT_FUNCTIONS_THRESHOLD {
         RefactorKind::SplitModule
-    } else if module.duplicates > 10 {
+    } else if module.duplicates > DUPLICATES_THRESHOLD {
         RefactorKind::RemoveDuplication
-    } else if module.public_api_size > 30 {
+    } else if module.public_api_size > API_SIZE_THRESHOLD {
         RefactorKind::ReduceSurface
-    } else if module.fan_out > 15 {
+    } else if module.fan_out > FAN_OUT_THRESHOLD {
         RefactorKind::ReorderDependencies
     } else {
         RefactorKind::ExtractFunction

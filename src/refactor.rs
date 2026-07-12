@@ -34,6 +34,9 @@ pub struct RefactorOutput {
     pub diff_summary: DiffSummary,
 }
 
+/// Mock diff-summary divisor: `len / 20` pretends we removed 5% of the lines.
+const MOCK_REMOVAL_DIVISOR: usize = 20;
+
 /// Mock engine for offline / demo use. Performs simple structural splits.
 pub struct MockRefactorEngine;
 
@@ -73,7 +76,7 @@ impl RefactorEngine for MockRefactorEngine {
                 files_removed: 0,
                 files_modified: 1,
                 lines_added: 0,
-                lines_removed: original.len() / 20, // pretend we removed 5%
+                lines_removed: original.len() / MOCK_REMOVAL_DIVISOR, // pretend we removed 5%
             };
 
             Ok(RefactorOutput {

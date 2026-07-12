@@ -15,6 +15,17 @@ use std::future::Future;
 use std::pin::Pin;
 use tracing::warn;
 
+/// TCP connect timeout for engine requests.
+const CONNECT_TIMEOUT_SECS: u64 = 10;
+/// Socket read timeout for engine requests: completions can stream slowly.
+const READ_TIMEOUT_SECS: u64 = 120;
+/// Socket write timeout for engine requests.
+const WRITE_TIMEOUT_SECS: u64 = 30;
+/// Response-body characters included in a non-2xx error message.
+const ERROR_SNIPPET_CHARS: usize = 300;
+/// Port assumed when `llm.endpoint` omits one.
+const DEFAULT_HTTP_PORT: u16 = 80;
+
 /// LLM refactor engine backed by an OpenAI-compatible HTTP endpoint.
 pub struct HttpRefactorEngine {
     endpoint: String,
@@ -132,7 +143,7 @@ fn parse_endpoint(
             p.parse::<u16>()
                 .map_err(|_| "invalid port in llm.endpoint")?,
         ),
-        None => (authority.to_string(), 80),
+        None => (authority.to_string(), DEFAULT_HTTP_PORT),
     };
     if host.is_empty() {
         return Err("llm.endpoint host is empty".into());
@@ -151,9 +162,10 @@ fn http_post_chat(endpoint: &str, api_key: Option<&str>, body: &str) -> Result<S
         .map_err(|e| format!("cannot resolve {host}:{port}: {e}"))?
         .next()
         .ok_or_else(|| format!("no address for {host}:{port}"))?;
-    let mut stream = std::net::TcpStream::connect_timeout(&addr, Duration::from_secs(10))
-        .map_err(|e| format!("connect {host}:{port} failed: {e}"))?;
-    if let Err(e) = stream.set_read_timeout(Some(Duration::from_mins(2))) {
+    let mut stream =
+        std::net::TcpStream::connect_timeout(&addr, Duration::from_secs(CONNECT_TIMEOUT_SECS))
+            .map_err(|e| format!("connect {host}:{port} failed: {e}"))?;
+    if let Err(e) = stream.set_read_timeout(Some(Duration::from_secs(READ_TIMEOUT_SECS))) {
         warn!(
             event = "http.timeout_config_failed",
             kind = "read",
@@ -161,7 +173,7 @@ fn http_post_chat(endpoint: &str, api_key: Option<&str>, body: &str) -> Result<S
             "failed to set read timeout"
         );
     }
-    if let Err(e) = stream.set_write_timeout(Some(Duration::from_secs(30))) {
+    if let Err(e) = stream.set_write_timeout(Some(Duration::from_secs(WRITE_TIMEOUT_SECS))) {
         warn!(
             event = "http.timeout_config_failed",
             kind = "write",
@@ -198,7 +210,7 @@ fn http_post_chat(endpoint: &str, api_key: Option<&str>, body: &str) -> Result<S
         .parse()
         .unwrap_or(0);
     if !(200..300).contains(&code) {
-        let snippet: String = rsp_body.chars().take(300).collect();
+        let snippet: String = rsp_body.chars().take(ERROR_SNIPPET_CHARS).collect();
         return Err(format!("engine endpoint returned {status_line}: {snippet}").into());
     }
     Ok(rsp_body.to_string())

@@ -16,6 +16,9 @@ pub struct EventBus {
     history: Arc<RwLock<Vec<Event>>>,
 }
 
+/// Maximum number of events retained in the in-memory history (oldest evicted).
+const HISTORY_CAP: usize = 1000;
+
 impl Default for EventBus {
     fn default() -> Self {
         let (tx, _) = broadcast::channel(1024);
@@ -53,7 +56,7 @@ impl EventBus {
         let _ = self.tx.send(event.clone());
         let mut history = self.history.write().await;
         history.push(event);
-        if history.len() > 1000 {
+        if history.len() > HISTORY_CAP {
             history.remove(0);
         }
     }
@@ -63,7 +66,7 @@ impl EventBus {
     pub async fn restore(&self, events: Vec<Event>) {
         let mut history = self.history.write().await;
         history.clear();
-        let start = events.len().saturating_sub(1000);
+        let start = events.len().saturating_sub(HISTORY_CAP);
         history.extend(events.into_iter().skip(start));
     }
 

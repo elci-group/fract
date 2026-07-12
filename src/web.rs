@@ -54,11 +54,21 @@ struct Pagination {
     offset: Option<usize>,
 }
 
+/// Default page size for the paginated list endpoints.
+const DEFAULT_PAGE_LIMIT: usize = 50;
+/// Hard upper bound on a requested page size.
+const MAX_PAGE_LIMIT: usize = 500;
+/// How far back the events endpoint reads before paginating client-side.
+const EVENTS_WINDOW: usize = 1000;
+
 /// Returns `(total, page)` after applying offset/limit (limit clamped to 1..=500).
 fn paginate<T>(items: Vec<T>, pg: &Pagination) -> (usize, Vec<T>) {
     let total = items.len();
     let offset = pg.offset.unwrap_or(0).min(total);
-    let limit = pg.limit.unwrap_or(50).clamp(1, 500);
+    let limit = pg
+        .limit
+        .unwrap_or(DEFAULT_PAGE_LIMIT)
+        .clamp(1, MAX_PAGE_LIMIT);
     let page = items.into_iter().skip(offset).take(limit).collect();
     (total, page)
 }
@@ -119,7 +129,7 @@ async fn approve_handler(
 
 async fn events_handler(State(daemon): State<Arc<Daemon>>, Query(pg): Query<Pagination>) -> Json {
     // Pull a deep recent window, then paginate client-side.
-    let all = daemon.events(1000).await;
+    let all = daemon.events(EVENTS_WINDOW).await;
     let (total, page) = paginate(all, &pg);
     let mut o = schema_object();
     o.insert("total", Value::Number(total as f64));

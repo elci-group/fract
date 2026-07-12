@@ -186,12 +186,16 @@ fn count_imports(text: &str, language: Language) -> usize {
     }
 }
 
+/// Minimum trimmed length for a line to count toward duplication; shorter
+/// lines (braces, `else`, ...) are too common to carry a signal.
+const DUPLICATE_LINE_MIN_LEN: usize = 16;
+
 fn estimate_duplication(text: &str) -> usize {
     let mut seen = std::collections::HashSet::new();
     let mut dupes = 0;
     for line in text.lines() {
         let line = line.trim();
-        if line.len() >= 16 && !seen.insert(line.to_string()) {
+        if line.len() >= DUPLICATE_LINE_MIN_LEN && !seen.insert(line.to_string()) {
             dupes += 1;
         }
     }

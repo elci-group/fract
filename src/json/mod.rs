@@ -431,4 +431,179 @@ mod tests {
             assert_eq!(back, v, "roundtrip mismatch for {s}");
         }
     }
+
+    // --- Property/invariant suites (hand-rolled, deterministic LCG) ---
+
+    /// String pool that stresses the escape table: quotes, backslashes,
+    /// standard escapes, raw control chars 0x00-0x1F, and multi-byte unicode.
+    fn prop_gen_string(state: &mut u64) -> String {
+        const POOL: &[char] = &[
+            'a', 'b', 'Z', '0', ' ', '"', '\\', '/', '\n', '\t', '\r', '\u{0008}', '\u{000C}',
+            '\u{0000}', '\u{0001}', '\u{001F}', '\u{0010}', 'é', '漢', '🎉', '{', '}', '[', ']',
+            ',', ':',
+        ];
+        let len = usize::try_from(lcg_next(state) % 12).unwrap();
+        let mut s = String::new();
+        for _ in 0..len {
+            let idx = usize::try_from(lcg_next(state) % POOL.len() as u64).unwrap();
+            s.push(POOL[idx]);
+        }
+        s
+    }
+
+    /// Value tree generator (depth <= `depth`) mixing all six variants.
+    /// Numbers are drawn from classes that serialize exactly (see
+    /// `prop_numbers_roundtrip_bit_exact` for the documented lossy class).
+    fn prop_gen_value(state: &mut u64, depth: usize) -> Value {
+        const FLOATS: &[f64] = &[0.1, -0.25, 1.5e10, 3.125e-4, 1e300, -1e-300, 0.5, 2.71];
+        let branches = if depth == 0 { 5 } else { 7 };
+        match u8::try_from(lcg_next(state) % branches).unwrap() {
+            0 => Value::Null,
+            1 => Value::Bool(lcg_next(state) & 1 == 1),
+            2 => {
+                let n = i64::try_from(lcg_next(state) % 200_000).unwrap() - 100_000;
+                Value::Number(n as f64)
+            }
+            3 => {
+                let idx = usize::try_from(lcg_next(state) % FLOATS.len() as u64).unwrap();
+                Value::Number(FLOATS[idx])
+            }
+            4 => Value::String(prop_gen_string(state)),
+            5 => {
+                let len = usize::try_from(lcg_next(state) % 4).unwrap();
+                Value::Array((0..len).map(|_| prop_gen_value(state, depth - 1)).collect())
+            }
+            _ => {
+                let len = usize::try_from(lcg_next(state) % 4).unwrap();
+                let mut obj = Value::object();
+                for i in 0..len {
+                    obj.insert(format!("k{i}"), prop_gen_value(state, depth - 1));
+                }
+                obj
+            }
+        }
+    }
+
+    #[test]
+    fn prop_generated_value_trees_roundtrip() {
+        let mut state: u64 = 0xdead_beef_cafe_babe;
+        for _ in 0..200 {
+            let v = prop_gen_value(&mut state, 4);
+            let s = v.to_string();
+            let back = parse(&s).unwrap_or_else(|e| panic!("parse failed for {s}: {e}"));
+            // Roundtrip identity.
+            assert_eq!(back, v, "roundtrip mismatch for {s}");
+            // Serialization stability: re-serializing the parsed value is idempotent.
+            assert_eq!(back.to_string(), s, "serialization unstable for {s}");
+        }
+    }
+
+    #[test]
+    fn prop_random_strings_roundtrip_exactly() {
+        let mut state: u64 = 0x0dd5_1eed_f00d_1234;
+        for _ in 0..100 {
+            let s = prop_gen_string(&mut state);
+            let encoded = Value::String(s.clone()).to_string();
+            let back =
+                parse(&encoded).unwrap_or_else(|e| panic!("parse failed for {encoded}: {e}"));
+            assert_eq!(
+                back,
+                Value::String(s),
+                "string not preserved exactly via {encoded}"
+            );
+        }
+    }
+
+    #[test]
+    fn prop_truncated_documents_never_panic() {
+        let doc = json!({
+            "name": "fract-é漢🎉",
+            "quote": "say \"hi\" \\ done\n",
+            "counts": [1, 2, 0.1, 1e300, null, true],
+            "nested": { "deep": [{ "x": [], "y": {} }], "ctrl": "\u{0001}" }
+        })
+        .to_string();
+        // Cut only at char boundaries so each prefix is still valid UTF-8.
+        let boundaries: Vec<usize> = doc
+            .char_indices()
+            .map(|(i, _)| i)
+            .chain(std::iter::once(doc.len()))
+            .collect();
+        let mut state: u64 = 0x1234_4321_abcd_ef01;
+        for _ in 0..100 {
+            let idx = usize::try_from(lcg_next(&mut state) % boundaries.len() as u64).unwrap();
+            let prefix = &doc[..boundaries[idx]];
+            let result = std::panic::catch_unwind(|| parse(prefix));
+            match result {
+                // A truncated document must either parse to a valid `Value`
+                // or be rejected with `Err` — never panic.
+                Ok(Ok(_) | Err(_)) => {}
+                Err(payload) => std::panic::resume_unwind(payload),
+            }
+        }
+    }
+
+    #[test]
+    fn prop_numbers_roundtrip_bit_exact() {
+        let mut state: u64 = 0x5eed_5eed_5eed_5eed;
+        // Integers across the full i64 range. The `i64 -> f64` conversion is
+        // lossy beyond 2^53 (see `large_integer_round_trips_as_number`), but
+        // the stored f64 itself must survive the JSON roundtrip bit-exactly.
+        for _ in 0..100 {
+            let n = i64::from_le_bytes(lcg_next(&mut state).to_le_bytes());
+            let f = n as f64;
+            let back = parse(&Value::Number(f).to_string()).unwrap();
+            match back {
+                Value::Number(m) => {
+                    assert_eq!(m.to_bits(), f.to_bits(), "integer {n} not bit-exact");
+                }
+                other => panic!("expected number for {n}, got {other:?}"),
+            }
+        }
+        // Floats, including the notorious classes: 0.1, huge, tiny, denormal.
+        for x in [
+            0.1,
+            -0.1,
+            1e300,
+            -1e300,
+            1e-300,
+            5e-324,
+            f64::MIN_POSITIVE,
+            f64::MAX,
+            f64::EPSILON,
+            2.71,
+            -0.0,
+            0.5,
+            123_456_789.5,
+        ] {
+            let back = parse(&Value::Number(x).to_string()).unwrap();
+            match back {
+                Value::Number(m) => {
+                    assert_eq!(m.to_bits(), x.to_bits(), "float {x:e} not bit-exact");
+                }
+                other => panic!("expected number for {x:e}, got {other:?}"),
+            }
+        }
+        // Random finite bit patterns roundtrip bit-exactly; non-finite values
+        // are the documented lossy class: they serialize as `null`.
+        for _ in 0..50 {
+            let x = f64::from_bits(lcg_next(&mut state));
+            let back = parse(&Value::Number(x).to_string()).unwrap();
+            if x.is_finite() {
+                match back {
+                    Value::Number(m) => {
+                        assert_eq!(
+                            m.to_bits(),
+                            x.to_bits(),
+                            "bits {:#x} not exact",
+                            x.to_bits()
+                        );
+                    }
+                    other => panic!("expected number for bits {:#x}, got {other:?}", x.to_bits()),
+                }
+            } else {
+                assert_eq!(back, Value::Null, "non-finite must serialize as null");
+            }
+        }
+    }
 }

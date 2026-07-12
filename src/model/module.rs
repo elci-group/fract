@@ -59,14 +59,22 @@ pub enum Health {
     Critical,
 }
 
+/// Upper entropy bound (exclusive) for `Health::Excellent`.
+const HEALTH_EXCELLENT_MAX: f64 = 0.4;
+/// Upper entropy bound (exclusive) for `Health::Healthy`.
+const HEALTH_HEALTHY_MAX: f64 = 0.65;
+/// Upper entropy bound (exclusive) for `Health::Warning`; above it a module is
+/// `Health::Critical`.
+const HEALTH_WARNING_MAX: f64 = 0.82;
+
 impl Health {
     /// Band an entropy score into a health level.
     #[must_use]
     pub fn from_entropy(entropy: f64) -> Self {
         match entropy {
-            e if e < 0.4 => Health::Excellent,
-            e if e < 0.65 => Health::Healthy,
-            e if e < 0.82 => Health::Warning,
+            e if e < HEALTH_EXCELLENT_MAX => Health::Excellent,
+            e if e < HEALTH_HEALTHY_MAX => Health::Healthy,
+            e if e < HEALTH_WARNING_MAX => Health::Warning,
             _ => Health::Critical,
         }
     }

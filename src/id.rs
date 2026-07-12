@@ -36,4 +36,19 @@ mod tests {
         let suffix = id.strip_prefix("fract-").unwrap();
         assert!(suffix.parse::<u64>().is_ok());
     }
+
+    #[test]
+    fn prop_thousand_ids_strictly_increasing_and_unique() {
+        let mut seen = std::collections::HashSet::with_capacity(1000);
+        let mut prev: Option<u64> = None;
+        for _ in 0..1000 {
+            let id = next();
+            let n: u64 = id.strip_prefix("fract-").unwrap().parse().unwrap();
+            if let Some(p) = prev {
+                assert!(n > p, "id counter went backwards: {p} -> {n}");
+            }
+            assert!(seen.insert(n), "duplicate id {id}");
+            prev = Some(n);
+        }
+    }
 }

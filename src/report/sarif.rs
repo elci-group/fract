@@ -10,6 +10,9 @@ use super::model::{Finding, Report, Severity};
 // SARIF 2.1.0
 // ---------------------------------------------------------------------------
 
+/// JSON Schema URL advertised in the `$schema` field of SARIF output.
+const SARIF_SCHEMA_URL: &str = "https://json.schemastore.org/sarif-2.1.0.json";
+
 fn rule_id(kind: &str) -> String {
     kind.to_ascii_lowercase().replace(' ', "-")
 }
@@ -85,10 +88,7 @@ pub(crate) fn render_sarif(r: &Report) -> Value {
 
     let mut top = Value::object();
     top.insert("version", sv("2.1.0"));
-    top.insert(
-        "$schema",
-        sv("https://json.schemastore.org/sarif-2.1.0.json"),
-    );
+    top.insert("$schema", sv(SARIF_SCHEMA_URL));
     top.insert("runs", Value::Array(vec![run]));
     top
 }

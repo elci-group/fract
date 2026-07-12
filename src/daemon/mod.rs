@@ -21,6 +21,15 @@ use tokio::sync::RwLock;
 use tokio::time::interval;
 use tracing::{error, info, warn};
 
+/// Interval between full reindex + queue-processing passes.
+const REINDEX_TICK_SECS: u64 = 30;
+/// Interval between merge-safety sweeps.
+const MERGE_TICK_SECS: u64 = 10;
+/// Buffer of the notify-event channel feeding the watcher task.
+const NOTIFY_CHANNEL_CAPACITY: usize = 256;
+/// Fallback engine endpoint when `llm.endpoint` is unset (local Ollama).
+const DEFAULT_LLM_ENDPOINT: &str = "http://127.0.0.1:11434/v1";
+
 pub struct Daemon {
     config: Config,
     event_bus: EventBus,
@@ -98,7 +107,8 @@ impl Daemon {
 
         let watch_root = self.config.project_root.clone();
         let _event_bus = self.event_bus.clone();
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<::notify::Result<NotifyEvent>>(256);
+        let (tx, mut rx) =
+            tokio::sync::mpsc::channel::<::notify::Result<NotifyEvent>>(NOTIFY_CHANNEL_CAPACITY);
 
         let mut watcher: RecommendedWatcher = Watcher::new(
             move |res| {
@@ -125,7 +135,7 @@ impl Daemon {
         // Periodic reindexing and queue processing.
         let daemon = self.clone();
         tokio::spawn(async move {
-            let mut tick = interval(Duration::from_secs(30));
+            let mut tick = interval(Duration::from_secs(REINDEX_TICK_SECS));
             loop {
                 tick.tick().await;
                 if let Err(e) = daemon.refresh_index().await {
@@ -140,7 +150,7 @@ impl Daemon {
         // Merge safety watcher.
         let daemon = self.clone();
         tokio::spawn(async move {
-            let mut tick = interval(Duration::from_secs(10));
+            let mut tick = interval(Duration::from_secs(MERGE_TICK_SECS));
             loop {
                 tick.tick().await;
                 if let Err(e) = daemon.attempt_merges().await {
@@ -190,8 +200,8 @@ fn build_engine(llm: &crate::config::LlmConfig) -> Arc<dyn refactor::RefactorEng
     let endpoint = if let Some(e) = llm.endpoint.clone() {
         e
     } else {
-        warn!(event = "engine.config", provider = %llm.provider, "no llm.endpoint set; defaulting to http://127.0.0.1:11434/v1");
-        "http://127.0.0.1:11434/v1".to_string()
+        warn!(event = "engine.config", provider = %llm.provider, "no llm.endpoint set; defaulting to {}", DEFAULT_LLM_ENDPOINT);
+        DEFAULT_LLM_ENDPOINT.to_string()
     };
     if endpoint.starts_with("https://") {
         warn!(event = "engine.config", %endpoint, "https endpoint configured; fract's engine will refuse to connect (terminate TLS locally and use http://)");
