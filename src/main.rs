@@ -237,4 +237,40 @@ mod tests {
         assert!(load_config(Some(dir.join("missing.toml"))).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[tokio::test]
+    async fn run_init_writes_config_into_target_dir() {
+        let dir = temp_dir();
+        let args = Args {
+            config: None,
+            command: Command::Init { path: dir.clone() },
+            format: None,
+            color: None,
+            verbosity: 0,
+        };
+        run(args).await.unwrap();
+        let written = dir.join("fract.toml");
+        assert!(written.exists(), "init must create fract.toml");
+        let cfg = Config::load(&written).unwrap();
+        assert_eq!(cfg.project_root, dir.canonicalize().unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn run_index_renders_report_for_temp_project() {
+        let dir = temp_dir();
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/lib.rs"), "pub fn a() -> i32 { 1 }\n").unwrap();
+        let cfg_path = dir.join("fract.toml");
+        std::fs::write(&cfg_path, format!("project_root = \"{}\"\n", dir.display())).unwrap();
+        let args = Args {
+            config: Some(cfg_path),
+            command: Command::Index,
+            format: Some("json".to_string()),
+            color: None,
+            verbosity: 0,
+        };
+        run(args).await.unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
