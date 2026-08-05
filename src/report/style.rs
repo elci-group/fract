@@ -1,5 +1,6 @@
 //! Output options and terminal styling helpers shared by the renderers.
 
+use std::fmt::Write;
 use std::io::IsTerminal;
 
 use super::model::Severity;
@@ -159,10 +160,225 @@ pub(crate) fn paint(text: &str, code: &str, on: bool) -> String {
 
 pub(crate) fn severity_code(s: Severity) -> &'static str {
     match s {
-        Severity::Info => "32",
-        Severity::Warning => "33",
-        Severity::Critical => "31;1",
+        Severity::Info => "38;5;86",        // Bright cyan
+        Severity::Warning => "38;5;208",    // Orange
+        Severity::Critical => "38;5;196;1", // Bright red + bold
     }
+}
+
+// Extended color palette for glass aesthetic
+pub const GLASS_BASE: &str = "38;5;153"; // Light blue glass
+pub const GLASS_SHARD: &str = "38;5;117"; // Medium blue shard
+pub const GLASS_HIGHLIGHT: &str = "38;5;159"; // Bright highlight
+pub const GLASS_REFLECT: &str = "38;5;189"; // Reflection
+pub const GLASS_SHADOW: &str = "38;5;66"; // Shadow
+pub const HEADER_COLOR: &str = "38;5;147;1"; // Purple header
+pub const ACCENT_COLOR: &str = "38;5;141"; // Magenta accent
+pub const SUCCESS_COLOR: &str = "38;5;76"; // Green success
+pub const SUBTLE_COLOR: &str = "38;5;245"; // Gray subtle
+
+/// Glass-specific paint function with extended palette
+#[must_use]
+pub fn glass_paint(text: &str, color: &str, on: bool) -> String {
+    paint(text, color, on)
+}
+
+/// Paint text with a gradient effect (simulated glass refraction)
+#[must_use]
+pub fn gradient_paint(text: &str, on: bool) -> String {
+    if !on {
+        return text.to_string();
+    }
+
+    let chars: Vec<char> = text.chars().collect();
+    let mut result = String::new();
+    let colors = [
+        GLASS_BASE,
+        GLASS_HIGHLIGHT,
+        GLASS_REFLECT,
+        GLASS_HIGHLIGHT,
+        GLASS_BASE,
+    ];
+
+    for (i, ch) in chars.iter().enumerate() {
+        let color_idx = i % colors.len();
+        result.push_str(&paint(&ch.to_string(), colors[color_idx], true));
+    }
+
+    result
+}
+
+/// Shattering glass animation frames
+/// Shattering glass animation frames. Each frame is a complete multi-line
+/// screen render; the CLI clears the terminal and prints one frame at a time.
+pub struct GlassAnimation {
+    frames: Vec<String>,
+    current: usize,
+}
+
+impl GlassAnimation {
+    /// Build a glass-form → crack → shatter animation for `text`.
+    /// When `enabled` is `false` a single static frame is produced.
+    #[must_use]
+    pub fn new(text: &str, enabled: bool) -> Self {
+        if !enabled {
+            return Self {
+                frames: vec![text.to_string()],
+                current: 0,
+            };
+        }
+
+        let w = text.chars().count().max(2);
+        let shards = ["◇", "◈", "◆", "⋄", "✧", "✦", "⋆", "★"];
+        let glass_chars = ["░", "▒", "▓", "█"];
+        let mut frames = Vec::new();
+
+        // Helper: build a boxed frame with a border style and optional cracks.
+        let boxed = |border: &str, content: &str, accent: bool| -> String {
+            let b = if accent { paint(border, GLASS_HIGHLIGHT, true) } else { paint(border, GLASS_BASE, true) };
+            let top = format!("{b}{}{b}", paint(&"─".repeat(w), GLASS_BASE, true));
+            let mid = format!("{b}{}{b}", paint(content, if accent { GLASS_HIGHLIGHT } else { GLASS_BASE }, true));
+            let bot = format!("{b}{}{b}", paint(&"─".repeat(w), GLASS_BASE, true));
+            format!("{top}\n{mid}\n{bot}")
+        };
+
+        // Frame 0: border forming (thin lines)
+        frames.push(boxed("│", text, false));
+
+        // Frame 1: solid glass pane
+        frames.push(boxed("┃", text, true));
+
+        // Frames 2-4: progressive cracking inside the pane
+        for stage in 0..3 {
+            let mut line = String::new();
+            for (i, ch) in text.chars().enumerate() {
+                let crack_chance = (stage + 1) as f64 / 3.0;
+                let is_crack = (i + stage) % (4 - stage) == 0 && (i as f64 / w as f64) < crack_chance;
+                if is_crack {
+                    line.push_str(&paint(shards[i % shards.len()], GLASS_SHARD, true));
+                } else {
+                    line.push(ch);
+                }
+            }
+            frames.push(boxed("┃", &line, true));
+        }
+
+        // Frame 5: heavy fracture, border cracks
+        let mut fractured = String::new();
+        for (i, ch) in text.chars().enumerate() {
+            if i % 2 == 0 {
+                fractured.push_str(&paint(shards[i % shards.len()], GLASS_REFLECT, true));
+            } else {
+                fractured.push(ch);
+            }
+        }
+        let top5 = paint(&format!("┏{}┓", "━".repeat(w)), GLASS_SHARD, true);
+        let mid5 = format!("{}  {}  {}", paint("┃", GLASS_SHARD, true), paint(&fractured, GLASS_HIGHLIGHT, true), paint("┃", GLASS_SHARD, true));
+        let bot5 = paint(&format!("┗{}┛", "━".repeat(w)), GLASS_SHARD, true);
+        frames.push(format!("{top5}\n{mid5}\n{bot5}"));
+
+        // Frame 6: text dissolving into shards
+        let mut dissolve = String::new();
+        for (i, ch) in text.chars().enumerate() {
+            if i % 3 == 0 {
+                dissolve.push_str(&paint(glass_chars[i % glass_chars.len()], GLASS_HIGHLIGHT, true));
+            } else if i % 3 == 1 {
+                dissolve.push_str(&paint(shards[i % shards.len()], GLASS_REFLECT, true));
+            } else {
+                dissolve.push(ch);
+            }
+        }
+        let top6 = paint(&format!("╔{}╗", "═".repeat(w)), GLASS_REFLECT, true);
+        let mid6 = format!("{}  {}  {}", paint("║", GLASS_REFLECT, true), paint(&dissolve, GLASS_HIGHLIGHT, true), paint("║", GLASS_REFLECT, true));
+        let bot6 = paint(&format!("╚{}╝", "═".repeat(w)), GLASS_REFLECT, true);
+        frames.push(format!("{top6}\n{mid6}\n{bot6}"));
+
+        // Frame 7: mostly particles, border fading
+        let mut particles = String::new();
+        for i in 0..w {
+            particles.push_str(&paint(shards[i % shards.len()], GLASS_REFLECT, true));
+        }
+        let top7 = paint(&format!("  {}  ", "·".repeat(w)), GLASS_SHADOW, true);
+        let mid7 = format!("  {}  ", paint(&particles, GLASS_HIGHLIGHT, true));
+        let bot7 = paint(&format!("  {}  ", "·".repeat(w)), GLASS_SHADOW, true);
+        frames.push(format!("{top7}\n{mid7}\n{bot7}"));
+
+        // Frame 8: scattered remnants
+        let mut remnants = String::new();
+        for i in 0..w.max(4) {
+            remnants.push_str(&paint(glass_chars[i % glass_chars.len()], GLASS_SHADOW, true));
+            remnants.push(' ');
+        }
+        frames.push(format!("\n  {}  \n", paint(&remnants, GLASS_SHADOW, true)));
+
+        // Frame 9: clear
+        frames.push(String::new());
+
+        Self { frames, current: 0 }
+    }
+
+    /// Get the current animation frame
+    #[must_use]
+    pub fn current_frame(&self) -> &str {
+        &self.frames[self.current]
+    }
+
+    /// Advance to the next frame
+    pub fn advance(&mut self) -> bool {
+        if self.current < self.frames.len() - 1 {
+            self.current += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Reset animation to beginning
+    pub fn reset(&mut self) {
+        self.current = 0;
+    }
+
+    /// Get total frame count
+    #[must_use]
+    pub fn frame_count(&self) -> usize {
+        self.frames.len()
+    }
+}
+
+/// Draw a decorative glass border around content
+#[must_use]
+pub fn glass_border(content: &str, on: bool) -> String {
+    if !on {
+        return content.to_string();
+    }
+
+    let lines: Vec<&str> = content.lines().collect();
+    let max_width = lines.iter().map(|l| display_width(l)).max().unwrap_or(0);
+
+    let mut result = String::new();
+    let top = paint(
+        &format!("╭{}╮", "─".repeat(max_width + 2)),
+        GLASS_BASE,
+        true,
+    );
+    let bottom = paint(
+        &format!("╰{}╯", "─".repeat(max_width + 2)),
+        GLASS_SHADOW,
+        true,
+    );
+
+    result.push_str(&top);
+    result.push('\n');
+
+    for line in &lines {
+        let padded = format!(" {}{}", line, " ".repeat(max_width - display_width(line)));
+        let left = paint("│", GLASS_HIGHLIGHT, true);
+        let right = paint("│", GLASS_HIGHLIGHT, true);
+        let _ = writeln!(result, "{left}{padded}{right}");
+    }
+
+    result.push_str(&bottom);
+    result
 }
 
 pub(crate) fn display_width(s: &str) -> usize {
@@ -310,9 +526,9 @@ mod tests {
 
     #[test]
     fn severity_codes_match_palette() {
-        assert_eq!(severity_code(Severity::Info), "32");
-        assert_eq!(severity_code(Severity::Warning), "33");
-        assert_eq!(severity_code(Severity::Critical), "31;1");
+        assert_eq!(severity_code(Severity::Info), "38;5;86");
+        assert_eq!(severity_code(Severity::Warning), "38;5;208");
+        assert_eq!(severity_code(Severity::Critical), "38;5;196;1");
     }
 
     #[test]
