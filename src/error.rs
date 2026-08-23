@@ -109,6 +109,18 @@ impl From<crate::cli::Error> for Error {
     }
 }
 
+impl From<serde_json::Error> for Error {
+    fn from(err: serde_json::Error) -> Self {
+        Self::new(format!("JSON error: {}", err))
+    }
+}
+
+impl From<serde_yaml::Error> for Error {
+    fn from(err: serde_yaml::Error) -> Self {
+        Self::new(format!("YAML error: {}", err))
+    }
+}
+
 /// Mirrors `anyhow::Context` for `fract::Result`.
 pub trait Context<T> {
     /// Wrap a potential error with a static message.

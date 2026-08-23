@@ -100,14 +100,14 @@ impl ConfidenceOptimizer {
     /// Sort by highest confidence first (greedy).
     fn sort_by_confidence_desc(&mut self) {
         self.candidates.sort_by(|a, b| {
-            b.confidence.partial_cmp(&a.confidence).unwrap()
+            b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal)
         });
     }
 
     /// Sort by lowest confidence first (risk-averse).
     fn sort_by_confidence_asc(&mut self) {
         self.candidates.sort_by(|a, b| {
-            a.confidence.partial_cmp(&b.confidence).unwrap()
+            a.confidence.partial_cmp(&b.confidence).unwrap_or(std::cmp::Ordering::Equal)
         });
     }
 
@@ -156,9 +156,9 @@ impl ConfidenceOptimizer {
             .cloned()
             .collect();
 
-        high.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
-        medium.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
-        low.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
+        high.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
+        medium.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
+        low.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
 
         self.candidates = [high, medium, low].concat();
     }
