@@ -14,7 +14,11 @@ mod sarif;
 mod style;
 
 pub use model::{suggest_kind, Finding, Report, Severity, Summary, SCHEMA};
-pub use style::{ColorChoice, OutputFormat, Style, Verbosity};
+pub use style::{
+    glass_paint, ColorChoice, GlassAnimation, OutputFormat, Style, Verbosity, ACCENT_COLOR,
+    GLASS_BASE, GLASS_HIGHLIGHT, GLASS_REFLECT, GLASS_SHADOW, HEADER_COLOR, SUBTLE_COLOR,
+    SUCCESS_COLOR,
+};
 
 pub(crate) use human::render_human;
 pub(crate) use json_out::{render_json, render_jsonl};
@@ -168,16 +172,16 @@ mod tests {
         let r = Report::from_modules(Path::new("/proj"), &mods, 0.82, false);
         let md = render_markdown(&r);
         let expected = concat!(
-            "## fract architectural health report\n",
+            "## 🔮 fract architectural health report\n",
             "\n",
             "**Root:** `/proj` · **Modules:** 2 · **Health:** 60%\n",
-            "**Counts:** 1 excellent · 0 healthy · 0 warning · 1 critical\n",
+            "**Counts:** ✨ 1 excellent · 💎 0 healthy · ⚠️ 0 warning · 🚨 1 critical\n",
             "\n",
             "| Module | Entropy | Severity | Next action |\n",
             "| --- | --- | --- | --- |\n",
-            "| `big.rs` | 0.95 | critical | Split responsibilities into submodules |\n",
+            "| `big.rs` | 0.95 | 🚨 critical | Split responsibilities into submodules |\n",
             "\n",
-            "### `big.rs`\n",
+            "### 🚨 `big.rs`\n",
             "- **Why:** entropy 0.95 exceeds threshold 0.82\n",
             "- **Next:** Split responsibilities into submodules\n",
             "- **Confidence:** 90%\n",

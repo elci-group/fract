@@ -12,7 +12,7 @@ pub struct Error {
 impl Error {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
-            message: message.into(),
+            message: format!("💎 {}", message.into()),
         }
     }
 }
@@ -33,6 +33,11 @@ pub enum Command {
     Init {
         path: PathBuf,
     },
+    Shatter {
+        candidates: PathBuf,
+        dry_run: bool,
+        skip_validation: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -49,7 +54,7 @@ pub struct Args {
 
 const HELP: &str = "Usage: fract [OPTIONS] [COMMAND]
 
-Autonomous architectural maintenance daemon
+Autonomous architectural maintenance daemon with glass aesthetic styling
 
 Options:
   -c, --config <FILE>     Path to configuration file
@@ -65,10 +70,15 @@ Commands:
   run       Run the daemon (default)
   index     Index the project and print module health
   init      Generate a default configuration file
+  shatter   Execute deterministic source transformations
 
 Environment:
   NO_COLOR              When set, disables ANSI colour (same as --color=never)
   RUST_LOG              Tracing filter for the daemon (e.g. fract=debug)
+
+Output Styling:
+  Glass aesthetic animations and enhanced color palette are enabled by default
+  in terminal environments. Use --no-color to disable for plain text output.
 ";
 
 impl Args {
@@ -174,6 +184,42 @@ impl Args {
                         _ => {}
                     }
                     command = Some(Command::Init { path });
+                }
+                "shatter" => {
+                    let mut candidates = None;
+                    let mut dry_run = false;
+                    let mut skip_validation = false;
+
+                    while let Some(arg) = iter.peek().map(|s| s.as_ref().to_string()) {
+                        match arg.as_str() {
+                            s if s.starts_with('-') => {
+                                let arg = iter.next().unwrap();
+                                let arg = arg.as_ref();
+                                match arg {
+                                    "--dry-run" => dry_run = true,
+                                    "--skip-validation" => skip_validation = true,
+                                    "--candidates" => {
+                                        candidates = Some(PathBuf::from(next_value(&mut iter, "--candidates")?));
+                                    }
+                                    s if s.starts_with("--candidates=") => {
+                                        candidates = Some(PathBuf::from(&s["--candidates=".len()..]));
+                                    }
+                                    s => return Err(Error::new(format!("unknown shatter option: {s}"))),
+                                }
+                            }
+                            _ => {
+                                candidates = Some(PathBuf::from(iter.next().unwrap().as_ref()));
+                            }
+                        }
+                    }
+
+                    let candidates = candidates
+                        .ok_or_else(|| Error::new("shatter requires CANDIDATES file argument"))?;
+                    command = Some(Command::Shatter {
+                        candidates,
+                        dry_run,
+                        skip_validation,
+                    });
                 }
                 s if s.starts_with('-') => {
                     return Err(Error::new(format!("unexpected argument: {s}")));
@@ -323,6 +369,7 @@ mod tests {
     fn help_returns_error() {
         let err = Args::parse_from(["fract", "--help"]).unwrap_err();
         assert!(err.message.contains("Usage:"));
+        assert!(err.message.contains("💎"));
     }
 
     // ---- output flags -------------------------------------------------------
@@ -368,5 +415,80 @@ mod tests {
     #[test]
     fn missing_format_value_errors() {
         assert!(Args::parse_from(["fract", "--format"]).is_err());
+    }
+
+    // ---- shatter command -------------------------------------------------------
+
+    #[test]
+    fn shatter_requires_candidates_file() {
+        assert!(Args::parse_from(["fract", "shatter"]).is_err());
+    }
+
+    #[test]
+    fn shatter_with_candidates_file() {
+        let args = Args::parse_from(["fract", "shatter", "candidates.json"]).unwrap();
+        match args.command {
+            Command::Shatter {
+                candidates,
+                dry_run,
+                skip_validation,
+            } => {
+                assert_eq!(candidates, PathBuf::from("candidates.json"));
+                assert!(!dry_run);
+                assert!(!skip_validation);
+            }
+            _ => panic!("expected Shatter command"),
+        }
+    }
+
+    #[test]
+    fn shatter_with_dry_run_flag() {
+        let args = Args::parse_from(["fract", "shatter", "candidates.json", "--dry-run"]).unwrap();
+        match args.command {
+            Command::Shatter { dry_run, .. } => assert!(dry_run),
+            _ => panic!("expected Shatter command"),
+        }
+    }
+
+    #[test]
+    fn shatter_with_skip_validation_flag() {
+        let args = Args::parse_from(["fract", "shatter", "candidates.json", "--skip-validation"]).unwrap();
+        match args.command {
+            Command::Shatter { skip_validation, .. } => assert!(skip_validation),
+            _ => panic!("expected Shatter command"),
+        }
+    }
+
+    #[test]
+    fn shatter_with_candidates_flag() {
+        let args = Args::parse_from(["fract", "shatter", "--candidates", "cand.toml"]).unwrap();
+        match args.command {
+            Command::Shatter { candidates, .. } => assert_eq!(candidates, PathBuf::from("cand.toml")),
+            _ => panic!("expected Shatter command"),
+        }
+    }
+
+    #[test]
+    fn shatter_with_all_flags() {
+        let args = Args::parse_from([
+            "fract",
+            "shatter",
+            "candidates.json",
+            "--dry-run",
+            "--skip-validation",
+        ])
+        .unwrap();
+        match args.command {
+            Command::Shatter {
+                candidates,
+                dry_run,
+                skip_validation,
+            } => {
+                assert_eq!(candidates, PathBuf::from("candidates.json"));
+                assert!(dry_run);
+                assert!(skip_validation);
+            }
+            _ => panic!("expected Shatter command"),
+        }
     }
 }

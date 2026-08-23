@@ -235,9 +235,20 @@ impl GlassAnimation {
 
         // Helper: build a boxed frame with a border style and optional cracks.
         let boxed = |border: &str, content: &str, accent: bool| -> String {
-            let b = if accent { paint(border, GLASS_HIGHLIGHT, true) } else { paint(border, GLASS_BASE, true) };
+            let b = if accent {
+                paint(border, GLASS_HIGHLIGHT, true)
+            } else {
+                paint(border, GLASS_BASE, true)
+            };
             let top = format!("{b}{}{b}", paint(&"─".repeat(w), GLASS_BASE, true));
-            let mid = format!("{b}{}{b}", paint(content, if accent { GLASS_HIGHLIGHT } else { GLASS_BASE }, true));
+            let mid = format!(
+                "{b}{}{b}",
+                paint(
+                    content,
+                    if accent { GLASS_HIGHLIGHT } else { GLASS_BASE },
+                    true
+                )
+            );
             let bot = format!("{b}{}{b}", paint(&"─".repeat(w), GLASS_BASE, true));
             format!("{top}\n{mid}\n{bot}")
         };
@@ -253,7 +264,8 @@ impl GlassAnimation {
             let mut line = String::new();
             for (i, ch) in text.chars().enumerate() {
                 let crack_chance = (stage + 1) as f64 / 3.0;
-                let is_crack = (i + stage) % (4 - stage) == 0 && (i as f64 / w as f64) < crack_chance;
+                let is_crack =
+                    (i + stage) % (4 - stage) == 0 && (i as f64 / w as f64) < crack_chance;
                 if is_crack {
                     line.push_str(&paint(shards[i % shards.len()], GLASS_SHARD, true));
                 } else {
@@ -273,7 +285,12 @@ impl GlassAnimation {
             }
         }
         let top5 = paint(&format!("┏{}┓", "━".repeat(w)), GLASS_SHARD, true);
-        let mid5 = format!("{}  {}  {}", paint("┃", GLASS_SHARD, true), paint(&fractured, GLASS_HIGHLIGHT, true), paint("┃", GLASS_SHARD, true));
+        let mid5 = format!(
+            "{}  {}  {}",
+            paint("┃", GLASS_SHARD, true),
+            paint(&fractured, GLASS_HIGHLIGHT, true),
+            paint("┃", GLASS_SHARD, true)
+        );
         let bot5 = paint(&format!("┗{}┛", "━".repeat(w)), GLASS_SHARD, true);
         frames.push(format!("{top5}\n{mid5}\n{bot5}"));
 
@@ -281,7 +298,11 @@ impl GlassAnimation {
         let mut dissolve = String::new();
         for (i, ch) in text.chars().enumerate() {
             if i % 3 == 0 {
-                dissolve.push_str(&paint(glass_chars[i % glass_chars.len()], GLASS_HIGHLIGHT, true));
+                dissolve.push_str(&paint(
+                    glass_chars[i % glass_chars.len()],
+                    GLASS_HIGHLIGHT,
+                    true,
+                ));
             } else if i % 3 == 1 {
                 dissolve.push_str(&paint(shards[i % shards.len()], GLASS_REFLECT, true));
             } else {
@@ -289,7 +310,12 @@ impl GlassAnimation {
             }
         }
         let top6 = paint(&format!("╔{}╗", "═".repeat(w)), GLASS_REFLECT, true);
-        let mid6 = format!("{}  {}  {}", paint("║", GLASS_REFLECT, true), paint(&dissolve, GLASS_HIGHLIGHT, true), paint("║", GLASS_REFLECT, true));
+        let mid6 = format!(
+            "{}  {}  {}",
+            paint("║", GLASS_REFLECT, true),
+            paint(&dissolve, GLASS_HIGHLIGHT, true),
+            paint("║", GLASS_REFLECT, true)
+        );
         let bot6 = paint(&format!("╚{}╝", "═".repeat(w)), GLASS_REFLECT, true);
         frames.push(format!("{top6}\n{mid6}\n{bot6}"));
 
@@ -306,7 +332,11 @@ impl GlassAnimation {
         // Frame 8: scattered remnants
         let mut remnants = String::new();
         for i in 0..w.max(4) {
-            remnants.push_str(&paint(glass_chars[i % glass_chars.len()], GLASS_SHADOW, true));
+            remnants.push_str(&paint(
+                glass_chars[i % glass_chars.len()],
+                GLASS_SHADOW,
+                true,
+            ));
             remnants.push(' ');
         }
         frames.push(format!("\n  {}  \n", paint(&remnants, GLASS_SHADOW, true)));

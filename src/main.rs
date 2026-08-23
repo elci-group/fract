@@ -5,11 +5,34 @@
 use fract::cli::{Args, Command};
 use fract::config::Config;
 use fract::error::Result;
-use fract::report::{ColorChoice, OutputFormat, Report, Style, Verbosity};
+use fract::report::{
+    glass_paint, ColorChoice, GlassAnimation, OutputFormat, Report, Style, Verbosity, SUCCESS_COLOR,
+};
+use fract::shatter;
 use fract::{daemon::Daemon, web};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
+
+/// Helper to run glass animation if color is enabled
+fn run_animation(text: &str, style: &Style) {
+    if style.color {
+        let mut anim = GlassAnimation::new(text, true);
+        for _ in 0..anim.frame_count() {
+            println!("\x1b[2J\x1b[H{}", anim.current_frame());
+            std::thread::sleep(std::time::Duration::from_millis(80));
+            anim.advance();
+        }
+        println!("\x1b[2J\x1b[H");
+    }
+}
+
+/// Helper to resolve color choice from CLI args (before config is loaded)
+fn resolve_color_from_cli(cli_color: Option<String>) -> ColorChoice {
+    cli_color
+        .and_then(|c| ColorChoice::parse(&c))
+        .unwrap_or(ColorChoice::Auto)
+}
 
 fn main() {
     // Parse before building the runtime so `--help`/`--version` can exit cleanly
@@ -17,7 +40,7 @@ fn main() {
     let cli = match Args::parse() {
         Ok(args) => args,
         Err(e) => {
-            eprintln!("error: {e}");
+            eprintln!("{e}");
             std::process::exit(2);
         }
     };
@@ -27,7 +50,11 @@ fn main() {
     let rt = tokio::runtime::Runtime::new().expect("build tokio runtime");
     if let Err(e) = rt.block_on(run(cli)) {
         // Print the human-readable Display chain, never the `{:?}` Debug dump.
-        eprintln!("error: {e}");
+        let style = Style::detect(ColorChoice::Auto);
+        eprintln!(
+            "💎 {}",
+            glass_paint(&e.to_string(), "38;5;196", style.color)
+        );
         std::process::exit(1);
     }
 }
@@ -55,20 +82,31 @@ async fn run(cli: Args) -> Result<()> {
             let text = toml::to_string_pretty(&cfg)?;
             let out = root.join("fract.toml");
             std::fs::write(&out, text)?;
-            println!("Created {}", out.display());
+
+            let color = resolve_color_from_cli(cli.color.clone());
+            let style = Style::detect(color);
+            run_animation("Creating fract.toml", &style);
+            println!(
+                "Created {}",
+                glass_paint(&out.display().to_string(), SUCCESS_COLOR, style.color)
+            );
             Ok(())
         }
         Command::Index => {
             let cfg = load_config(cli.config.clone())?;
             let (format, color, verbosity) = resolve_output(&cli, &cfg)?;
+            let style = Style::detect(color);
+
+            run_animation("Analyzing project structure", &style);
+
             let indexer =
                 fract::indexer::Indexer::new(cfg.project_root.clone(), cfg.ignore_patterns.clone());
             let modules = indexer.index()?;
             let mut report =
                 Report::from_modules(&cfg.project_root, &modules, cfg.entropy_threshold, false);
             report.apply_budget(cfg.output.max_findings);
-            let style = Style::detect(color);
             let rendered = report.render(format, &style, verbosity);
+
             if rendered.ends_with('\n') {
                 print!("{rendered}");
             } else {
@@ -76,8 +114,59 @@ async fn run(cli: Args) -> Result<()> {
             }
             Ok(())
         }
+        Command::Shatter {
+            candidates,
+            dry_run,
+            skip_validation,
+        } => {
+            let cfg = load_config(cli.config.clone())?;
+            let color = resolve_color_from_cli(cli.color.clone());
+            let style = Style::detect(color);
+
+            run_animation("Executing shatter transformations", &style);
+
+            let report = shatter::execute_shatter(
+                cfg.project_root,
+                candidates,
+                skip_validation,
+                dry_run,
+            )
+            .await?;
+
+            if report.candidates_failed > 0 || !report.errors.is_empty() {
+                for error in &report.errors {
+                    eprintln!("{}", glass_paint(error, "38;5;196", style.color));
+                }
+                return Err(format!(
+                    "shatter: {} candidate(s) failed",
+                    report.candidates_failed
+                ).into());
+            }
+
+            println!(
+                "{}",
+                glass_paint(
+                    &format!(
+                        "✓ Shattered {} candidate(s), {} succeeded",
+                        report.candidates_attempted, report.candidates_succeeded
+                    ),
+                    SUCCESS_COLOR,
+                    style.color
+                )
+            );
+            Ok(())
+        }
         Command::Run => {
             let cfg = load_config(cli.config.clone())?;
+            let (_format, color, _verbosity) = resolve_output(&cli, &cfg)?;
+            let style = Style::detect(color);
+
+            run_animation("Starting fract daemon", &style);
+            println!(
+                "{}",
+                glass_paint("Fract daemon started", SUCCESS_COLOR, style.color)
+            );
+
             let daemon = Arc::new(Daemon::new(cfg));
             let daemon_clone = Arc::clone(&daemon);
             daemon.run().await?;

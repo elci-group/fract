@@ -10,7 +10,7 @@ use super::style::fmt_confidence_pct;
 pub(crate) fn render_markdown(r: &Report) -> String {
     use std::fmt::Write;
     let mut out = String::new();
-    let _ = writeln!(out, "## fract architectural health report");
+    let _ = writeln!(out, "## 🔮 fract architectural health report");
     let _ = writeln!(out);
     let _ = writeln!(
         out,
@@ -21,7 +21,7 @@ pub(crate) fn render_markdown(r: &Report) -> String {
     );
     let _ = writeln!(
         out,
-        "**Counts:** {} excellent · {} healthy · {} warning · {} critical",
+        "**Counts:** ✨ {} excellent · 💎 {} healthy · ⚠️ {} warning · 🚨 {} critical",
         r.summary.excellent, r.summary.healthy, r.summary.warning, r.summary.critical
     );
     let actionable: Vec<&Finding> = r
@@ -31,25 +31,36 @@ pub(crate) fn render_markdown(r: &Report) -> String {
         .collect();
     if actionable.is_empty() {
         let _ = writeln!(out);
-        let _ = writeln!(out, "No modules over the entropy threshold.");
+        let _ = writeln!(out, "✨ No modules over the entropy threshold.");
         return out;
     }
     let _ = writeln!(out);
     let _ = writeln!(out, "| Module | Entropy | Severity | Next action |");
     let _ = writeln!(out, "| --- | --- | --- | --- |");
     for f in &actionable {
+        let emoji = match f.severity {
+            Severity::Warning => "⚠️",
+            Severity::Critical => "🚨",
+            Severity::Info => "ℹ️",
+        };
         let _ = writeln!(
             out,
-            "| `{}` | {:.2} | {} | {} |",
+            "| `{}` | {:.2} | {} {} | {} |",
             f.module.display(),
             f.entropy,
+            emoji,
             f.severity.label(),
             f.next_action
         );
     }
     let _ = writeln!(out);
     for f in &actionable {
-        let _ = writeln!(out, "### `{}`", f.module.display());
+        let emoji = match f.severity {
+            Severity::Warning => "⚠️",
+            Severity::Critical => "🚨",
+            Severity::Info => "ℹ️",
+        };
+        let _ = writeln!(out, "### {} `{}`", emoji, f.module.display());
         let _ = writeln!(out, "- **Why:** {}", f.why);
         let _ = writeln!(out, "- **Next:** {}", f.next_action);
         let _ = writeln!(

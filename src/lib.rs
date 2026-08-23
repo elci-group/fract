@@ -17,6 +17,7 @@ pub mod prompt;
 pub mod queue;
 pub mod refactor;
 pub mod report;
+pub mod shatter;
 pub mod validation;
 pub mod web;
 
