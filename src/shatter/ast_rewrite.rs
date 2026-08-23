@@ -222,6 +222,65 @@ impl AstRewriter {
             .parts
             .ok_or_else(|| format!("Function '{}' not found", function_name).into())
     }
+
+    /// Make an item public or crate-visible.
+    pub fn make_public(
+        &self,
+        content: &str,
+        item_name: &str,
+        visibility: super::PublicVisibility,
+    ) -> Result<String> {
+        let file: syn::File = syn::parse_file(content)
+            .context("parsing file for visibility change")?;
+
+        let vis_str = visibility.as_str();
+        let new_items: Vec<syn::Item> = file.items
+            .iter()
+            .map(|item| match item {
+                syn::Item::Fn(item_fn) if item_fn.sig.ident.to_string() == item_name => {
+                    let mut new_fn = item_fn.clone();
+                    new_fn.vis = syn::parse_str::<syn::Visibility>(vis_str)
+                        .unwrap_or(syn::Visibility::Public(syn::token::Pub::default()));
+                    syn::Item::Fn(new_fn)
+                }
+                _ => item.clone(),
+            })
+            .collect();
+
+        let new_file = syn::File {
+            shebang: file.shebang.clone(),
+            attrs: file.attrs.clone(),
+            items: new_items,
+        };
+
+        Ok(prettyplease::unparse(&new_file))
+    }
+
+    /// Create a re-export of an item in a module.
+    pub fn create_reexport(
+        &self,
+        content: &str,
+        item_name: &str,
+        original_module: &str,
+    ) -> Result<String> {
+        let file: syn::File = syn::parse_file(content)
+            .context("parsing file for re-export")?;
+
+        let reexport_stmt = format!("pub use {}::{};", original_module, item_name);
+        let import_item: syn::ItemUse = syn::parse_str(&reexport_stmt)
+            .context("parsing re-export statement")?;
+
+        let mut new_items = file.items.clone();
+        new_items.push(syn::Item::Use(import_item));
+
+        let new_file = syn::File {
+            shebang: file.shebang.clone(),
+            attrs: file.attrs.clone(),
+            items: new_items,
+        };
+
+        Ok(prettyplease::unparse(&new_file))
+    }
 }
 
 /// Check if a use tree matches the given import path.

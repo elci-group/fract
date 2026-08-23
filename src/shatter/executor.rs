@@ -9,11 +9,13 @@
 //! 6. Validate with cargo check/test
 
 use std::path::PathBuf;
+use std::fs;
+use std::collections::HashMap;
 use crate::error::{Context, Result};
 use super::context::{ShatterContext, ShatterConfig};
 use super::{
     load_candidates, validate_candidate, PreconditionFailure, DependencyGraph,
-    Move, MoveSequence,
+    Move, MoveSequence, AstRewriter, Transaction, FileChange,
 };
 
 /// Report on the outcome of a shatter operation.
@@ -191,41 +193,147 @@ pub async fn execute_shatter(
 
 /// Execute a sequence of moves transactionally.
 async fn execute_moves(
-    _ctx: &ShatterContext,
+    ctx: &ShatterContext,
     sequence: MoveSequence,
 ) -> Result<Vec<PathBuf>> {
-    // Phase 2: Implement actual move execution
-    // For now, placeholder that shows intent
-
+    let mut tx = Transaction::new(ctx.root.clone())?;
+    let rewriter = AstRewriter::new(ctx.root.clone());
     let mut files_modified = Vec::new();
 
+    // Collect files to read before starting transaction
+    let mut file_contents: HashMap<PathBuf, String> = HashMap::new();
+    for mv in &sequence.moves {
+        let files = move_files(mv);
+        for file in files {
+            if !file_contents.contains_key(&file) {
+                let content = fs::read_to_string(&file)
+                    .context(format!("reading file for transaction: {}", file.display()))?;
+                file_contents.insert(file, content);
+            }
+        }
+    }
+
+    // Apply each move in sequence
     for mv in sequence.moves {
         match mv {
             Move::ExtractFunction {
                 source_file,
                 target_file,
+                function_name,
+                required_imports,
                 ..
             } => {
+                let source_content = file_contents.get(&source_file)
+                    .cloned()
+                    .ok_or_else(|| format!("source file not in cache: {}", source_file.display()))?;
+
+                let target_content = file_contents.get(&target_file)
+                    .cloned()
+                    .unwrap_or_default();
+
+                let (new_source, new_target) = rewriter.extract_function(
+                    &source_file,
+                    &function_name,
+                    &target_file,
+                    None,
+                )?;
+
+                // Add required imports to target file
+                let mut final_target = new_target;
+                for import in required_imports {
+                    final_target = rewriter.add_import(&final_target, &import)?;
+                }
+
+                tx.stage(FileChange::new(
+                    source_file.clone(),
+                    source_content,
+                    new_source,
+                ))?;
+
+                tx.stage(FileChange::new(
+                    target_file.clone(),
+                    target_content,
+                    final_target,
+                ))?;
+
                 files_modified.push(source_file);
                 files_modified.push(target_file);
             }
-            Move::AddImport { file, .. } => {
+
+            Move::AddImport { file, import_stmt } => {
+                let content = file_contents.get(&file)
+                    .cloned()
+                    .ok_or_else(|| format!("file not in cache: {}", file.display()))?;
+
+                let new_content = rewriter.add_import(&content, &import_stmt)?;
+
+                tx.stage(FileChange::new(file.clone(), content, new_content))?;
                 files_modified.push(file);
             }
-            Move::RemoveImport { file, .. } => {
+
+            Move::RemoveImport { file, import_path } => {
+                let content = file_contents.get(&file)
+                    .cloned()
+                    .ok_or_else(|| format!("file not in cache: {}", file.display()))?;
+
+                let new_content = rewriter.remove_import(&content, &import_path)?;
+
+                tx.stage(FileChange::new(file.clone(), content, new_content))?;
                 files_modified.push(file);
             }
-            Move::MakePublic { file, .. } => {
+
+            Move::MakePublic { file, item_name, visibility } => {
+                let content = file_contents.get(&file)
+                    .cloned()
+                    .ok_or_else(|| format!("file not in cache: {}", file.display()))?;
+
+                let new_content = rewriter.make_public(&content, &item_name, visibility)?;
+
+                tx.stage(FileChange::new(file.clone(), content, new_content))?;
                 files_modified.push(file);
             }
-            Move::CreateReExport { file, .. } => {
+
+            Move::CreateReExport { file, item_name, original_module } => {
+                let content = file_contents.get(&file)
+                    .cloned()
+                    .ok_or_else(|| format!("file not in cache: {}", file.display()))?;
+
+                let new_content = rewriter.create_reexport(&content, &item_name, &original_module)?;
+
+                tx.stage(FileChange::new(file.clone(), content, new_content))?;
                 files_modified.push(file);
             }
         }
     }
 
-    // Phase 2 will implement actual transformation here
-    // For now, return success with files that would be modified
+    // Apply all changes atomically
+    tx.apply()?;
+
+    // Validate with cargo check
+    if !ctx.config.skip_validation {
+        let validation = tx.validate().await?;
+        if !validation.all_passed() {
+            tx.rollback()?;
+            let error_msg = validation.logs.join("; ");
+            return Err(format!("validation failed: {}", error_msg).into());
+        }
+    }
+
+    // Commit the transaction
+    tx.commit()?;
 
     Ok(files_modified)
+}
+
+/// Get all files touched by a move.
+fn move_files(mv: &Move) -> Vec<PathBuf> {
+    match mv {
+        Move::ExtractFunction { source_file, target_file, .. } => {
+            vec![source_file.clone(), target_file.clone()]
+        }
+        Move::AddImport { file, .. } => vec![file.clone()],
+        Move::RemoveImport { file, .. } => vec![file.clone()],
+        Move::MakePublic { file, .. } => vec![file.clone()],
+        Move::CreateReExport { file, .. } => vec![file.clone()],
+    }
 }

@@ -6,11 +6,13 @@
 
 pub mod ast_rewrite;
 pub mod candidates;
+pub mod compiler_repair;
 pub mod context;
 pub mod executor;
 pub mod graph;
 pub mod moves;
 pub mod preconditions;
+pub mod reanalysis;
 pub mod transactional;
 
 pub use ast_rewrite::AstRewriter;
