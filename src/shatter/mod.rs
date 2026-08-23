@@ -5,6 +5,7 @@
 //! AST representation, validated by the Rust compiler.
 
 pub mod ast_rewrite;
+pub mod candidates;
 pub mod context;
 pub mod executor;
 pub mod graph;
@@ -13,6 +14,7 @@ pub mod preconditions;
 pub mod transactional;
 
 pub use ast_rewrite::AstRewriter;
+pub use candidates::load_candidates;
 pub use context::ShatterContext;
 pub use executor::{execute_shatter, ShatterReport};
 pub use graph::{DependencyGraph, FunctionId};
