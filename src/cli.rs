@@ -38,6 +38,7 @@ pub enum Command {
         dry_run: bool,
         skip_validation: bool,
     },
+    Update,
 }
 
 #[derive(Debug, Clone)]
@@ -71,6 +72,7 @@ Commands:
   index     Index the project and print module health
   init      Generate a default configuration file
   shatter   Execute deterministic source transformations
+  update    Clone the latest fract source and install it with `baby --user`
 
 Environment:
   NO_COLOR              When set, disables ANSI colour (same as --color=never)
@@ -161,6 +163,7 @@ impl Args {
                 }
                 "run" => command = Some(Command::Run),
                 "index" => command = Some(Command::Index),
+                "update" => command = Some(Command::Update),
                 "init" => {
                     let mut path = PathBuf::from(".");
                     // Copy the peeked token out so the immutable borrow of `iter`

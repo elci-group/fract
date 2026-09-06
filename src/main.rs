@@ -14,6 +14,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 
+mod update;
+
 /// Helper to run glass animation if color is enabled
 fn run_animation(text: &str, style: &Style) {
     if style.color {
@@ -72,6 +74,7 @@ fn init_tracing(verbosity: i32) {
 
 async fn run(cli: Args) -> Result<()> {
     match cli.command {
+        Command::Update => update::run(),
         Command::Init { path } => {
             std::fs::create_dir_all(&path)
                 .map_err(|e| format!("create project dir {}: {e}", path.display()))?;
