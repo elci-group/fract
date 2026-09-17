@@ -20,6 +20,13 @@ fn summary_value(s: &Summary) -> Value {
     o.insert("warning", Value::Number(s.warning as f64));
     o.insert("critical", Value::Number(s.critical as f64));
     o.insert("score", Value::Number(s.score));
+    // ELCI-DSEQ-EITR-001 §5/§7.1: analysed vs excluded files, and the
+    // repository-wide evidence state that follows from them, alongside the
+    // existing health-band counts uni already understands.
+    o.insert("analysed", Value::Number(s.total as f64));
+    o.insert("excluded", Value::Number(s.excluded as f64));
+    o.insert("coverage", Value::Number(s.coverage));
+    o.insert("state", sv(s.state));
     o
 }
 
@@ -37,6 +44,7 @@ fn finding_value(f: &Finding) -> Value {
     o.insert("message", sv(&f.message));
     o.insert("why", sv(&f.why));
     o.insert("next_action", sv(&f.next_action));
+    o.insert("evidence_state", sv(f.evidence_state));
     let mut ev = Value::object();
     for (k, v) in &f.evidence {
         ev.insert(k.clone(), sv(v));

@@ -68,7 +68,7 @@ mod tests {
             module("a.rs", 0.9, 100),
             module("c.rs", 0.9, 100),
         ];
-        let r = Report::from_modules(Path::new("."), &mods, 0.82, false);
+        let r = Report::from_modules(Path::new("."), &mods, mods.len(), 0.82, false);
         let paths: Vec<_> = r
             .findings
             .iter()
@@ -80,7 +80,7 @@ mod tests {
     #[test]
     fn over_only_drops_healthy() {
         let mods = vec![module("ok.rs", 0.3, 10), module("bad.rs", 0.95, 100)];
-        let r = Report::from_modules(Path::new("."), &mods, 0.82, true);
+        let r = Report::from_modules(Path::new("."), &mods, mods.len(), 0.82, true);
         assert_eq!(r.findings.len(), 1);
         assert_eq!(r.findings[0].module, PathBuf::from("bad.rs"));
     }
@@ -90,7 +90,7 @@ mod tests {
         // 0.60 is "Healthy" by the hard band but over a 0.40 threshold, so it
         // must surface as actionable (warning), with message/why agreeing.
         let mods = vec![module("mid.rs", 0.60, 100)];
-        let r = Report::from_modules(Path::new("."), &mods, 0.40, false);
+        let r = Report::from_modules(Path::new("."), &mods, mods.len(), 0.40, false);
         assert_eq!(r.findings[0].severity, Severity::Warning);
         assert!(r.findings[0].why.contains("exceeds"));
         assert!(r.findings[0].message.contains("Over entropy threshold"));
@@ -99,7 +99,7 @@ mod tests {
     #[test]
     fn human_contains_table_and_findings() {
         let mods = vec![module("big.rs", 0.95, 2000)];
-        let r = Report::from_modules(Path::new("/proj"), &mods, 0.82, true);
+        let r = Report::from_modules(Path::new("/proj"), &mods, mods.len(), 0.82, true);
         let out = render_human(
             &r,
             &Style {
@@ -118,7 +118,7 @@ mod tests {
     #[test]
     fn json_round_trips_schema() {
         let mods = vec![module("a.rs", 0.9, 100)];
-        let r = Report::from_modules(Path::new("."), &mods, 0.82, true);
+        let r = Report::from_modules(Path::new("."), &mods, mods.len(), 0.82, true);
         let v = render_json(&r);
         let text = v.to_string();
         assert!(text.contains("fract.report/v1"));
@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn sarif_is_minimally_valid() {
         let mods = vec![module("a.rs", 0.9, 100), module("ok.rs", 0.1, 5)];
-        let r = Report::from_modules(Path::new("."), &mods, 0.82, true);
+        let r = Report::from_modules(Path::new("."), &mods, mods.len(), 0.82, true);
         let v = render_sarif(&r);
         let text = v.to_string();
         assert!(text.contains("\"version\":\"2.1.0\""));
@@ -141,7 +141,7 @@ mod tests {
     #[test]
     fn markdown_has_table() {
         let mods = vec![module("a.rs", 0.9, 100)];
-        let r = Report::from_modules(Path::new("."), &mods, 0.82, true);
+        let r = Report::from_modules(Path::new("."), &mods, mods.len(), 0.82, true);
         let md = render_markdown(&r);
         assert!(md.contains("| Module | Entropy |"));
         assert!(md.contains("a.rs"));
@@ -169,7 +169,7 @@ mod tests {
     fn markdown_golden_snapshot() {
         // Deterministic fixture: one critical, one excellent module.
         let mods = vec![module("big.rs", 0.95, 2000), module("ok.rs", 0.30, 10)];
-        let r = Report::from_modules(Path::new("/proj"), &mods, 0.82, false);
+        let r = Report::from_modules(Path::new("/proj"), &mods, mods.len(), 0.82, false);
         let md = render_markdown(&r);
         let expected = concat!(
             "## 🔮 fract architectural health report\n",
@@ -193,7 +193,7 @@ mod tests {
     fn unknown_confidence_renders_as_dash_in_human_and_null_in_json() {
         let mut m = module("mystery.rs", 0.9, 100);
         m.confidence = None;
-        let r = Report::from_modules(Path::new("."), &[m], 0.82, true);
+        let r = Report::from_modules(Path::new("."), &[m], 1, 0.82, true);
         let human = render_human(
             &r,
             &Style {
@@ -218,7 +218,7 @@ mod tests {
         let mods: Vec<Module> = (0..5)
             .map(|i| module(&format!("m{i}.rs"), 0.83 + f64::from(i) * 0.03, 100))
             .collect();
-        let mut r = Report::from_modules(Path::new("."), &mods, 0.82, false);
+        let mut r = Report::from_modules(Path::new("."), &mods, mods.len(), 0.82, false);
         let total = r.summary.total;
         assert_eq!(total, 5);
         r.apply_budget(2);
@@ -254,7 +254,7 @@ mod tests {
         }
 
         let mods = vec![module("a.rs", 0.9, 100), module("b.rs", 0.85, 50)];
-        let r = Report::from_modules(Path::new("."), &mods, 0.82, true);
+        let r = Report::from_modules(Path::new("."), &mods, mods.len(), 0.82, true);
         let v = json::parse(&render_sarif(&r).to_string()).unwrap();
 
         let runs = arr(&v, "runs");

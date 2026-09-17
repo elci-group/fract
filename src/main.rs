@@ -104,9 +104,14 @@ async fn run(cli: Args) -> Result<()> {
 
             let indexer =
                 fract::indexer::Indexer::new(cfg.project_root.clone(), cfg.ignore_patterns.clone());
-            let modules = indexer.index()?;
-            let mut report =
-                Report::from_modules(&cfg.project_root, &modules, cfg.entropy_threshold, false);
+            let outcome = indexer.index()?;
+            let mut report = Report::from_modules(
+                &cfg.project_root,
+                &outcome.modules,
+                outcome.files_walked,
+                cfg.entropy_threshold,
+                false,
+            );
             report.apply_budget(cfg.output.max_findings);
             let rendered = report.render(format, &style, verbosity);
 

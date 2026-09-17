@@ -16,6 +16,16 @@ pub struct Indexer {
     ignore: Vec<String>,
 }
 
+/// Result of a full-project index: the modules fract could actually analyze,
+/// plus how many files the walk visited in total. The gap between the two
+/// (files walked but not turned into a module — unsupported language, empty,
+/// or unreadable) is fract's `excluded` count for `Summary.coverage`
+/// (ELCI-DSEQ-EITR-001 §5/§7.1).
+pub struct IndexOutcome {
+    pub modules: Vec<Module>,
+    pub files_walked: usize,
+}
+
 impl Indexer {
     /// Create an indexer rooted at `root` with ignore glob patterns.
     #[must_use]
@@ -28,10 +38,12 @@ impl Indexer {
     /// # Errors
     /// Returns an error if a directory entry cannot be read or a supported
     /// source file cannot be read or stat'ed.
-    pub fn index(&self) -> Result<Vec<Module>> {
+    pub fn index(&self) -> Result<IndexOutcome> {
         let mut modules = Vec::new();
+        let mut files_walked = 0usize;
         for entry in Walk::new(self.root.clone(), self.ignore.clone()).files() {
             let path = entry?;
+            files_walked += 1;
             let lang = Language::from_path(&path);
             if lang == Language::Other {
                 continue;
@@ -52,7 +64,10 @@ impl Indexer {
             module.fan_in = *fan_in.get(&module.path).unwrap_or(&0);
         }
 
-        Ok(modules)
+        Ok(IndexOutcome {
+            modules,
+            files_walked,
+        })
     }
 
     /// Match a relative path against a glob pattern.
@@ -214,7 +229,7 @@ mod tests {
     fn index_file_matches_full_index_for_one_module() {
         let root = crate_root();
         let indexer = Indexer::new(root.clone(), crate::config::default_ignore_patterns());
-        let modules = indexer.index().expect("full index");
+        let modules = indexer.index().expect("full index").modules;
         let target = modules
             .iter()
             .find(|m| m.path.as_path() == Path::new("src/model.rs"))
@@ -287,10 +302,14 @@ mod tests {
         std::fs::write(dir.join("src/notes.txt"), "ignore me\n").unwrap();
 
         let indexer = Indexer::new(dir.clone(), Vec::new());
-        let modules = indexer.index().unwrap();
-        assert_eq!(modules.len(), 2, "the .txt file must be skipped");
-        assert!(modules.iter().any(|m| m.language == Language::Python));
-        assert!(modules.iter().any(|m| m.language == Language::TypeScript));
+        let outcome = indexer.index().unwrap();
+        assert_eq!(outcome.modules.len(), 2, "the .txt file must be skipped");
+        assert_eq!(outcome.files_walked, 3, "all three files were visited");
+        assert!(outcome.modules.iter().any(|m| m.language == Language::Python));
+        assert!(outcome
+            .modules
+            .iter()
+            .any(|m| m.language == Language::TypeScript));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -27,7 +27,7 @@ impl Daemon {
             self.config.ignore_patterns.clone(),
         );
         // The full-tree std::fs walk must not block a tokio worker thread.
-        let modules = tokio::task::spawn_blocking(move || indexer.index()).await??;
+        let modules = tokio::task::spawn_blocking(move || indexer.index()).await??.modules;
         self.queue
             .refresh(&modules, self.config.entropy_threshold)
             .await;

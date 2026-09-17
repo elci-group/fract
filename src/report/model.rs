@@ -62,6 +62,21 @@ pub struct Finding {
     pub why: String,
     pub next_action: String,
     pub evidence: Vec<(String, String)>,
+    /// This finding's position in the canonical nine-state evidence
+    /// vocabulary (ELCI-DSEQ-EITR-001 §3), as the label uni's `EvidenceState`
+    /// serializes to (`healthy`/`warning`/`finding`). A per-module result
+    /// only ever needs these three of the nine — the rest (unknown, blocked,
+    /// skipped, ...) describe whether the *tool* ran at all, which is a
+    /// `Summary`-level, not a per-module, concern.
+    pub evidence_state: &'static str,
+}
+
+fn evidence_state_for(severity: Severity) -> &'static str {
+    match severity {
+        Severity::Critical => "finding",
+        Severity::Warning => "warning",
+        Severity::Info => "healthy",
+    }
 }
 
 impl Finding {
@@ -126,9 +141,18 @@ impl Finding {
             why,
             next_action,
             evidence,
+            evidence_state: evidence_state_for(severity),
         }
     }
 }
+
+/// Coverage below this fraction of walked files means the module-health
+/// counts below can no longer stand for a repository-wide verdict. Mirrors
+/// `uni::report::MIN_SUFFICIENT_COVERAGE` (ELCI-DSEQ-EITR-001 §6-§7.1) — kept
+/// as fract's own constant rather than a shared dependency, since fract and
+/// uni are separate binaries that only agree via the JSON contract, not a
+/// shared crate.
+pub const MIN_SUFFICIENT_COVERAGE: f64 = 0.8;
 
 #[derive(Debug, Clone)]
 pub struct Summary {
@@ -138,12 +162,28 @@ pub struct Summary {
     pub warning: usize,
     pub critical: usize,
     pub score: f64,
+    /// Files the walk visited but that never became a module (unsupported
+    /// language, empty, or unreadable).
+    pub excluded: usize,
+    /// `total / (total + excluded)`, i.e. `total / files_walked`. `1.0` when
+    /// nothing was walked, matching `score`'s own empty-project convention.
+    pub coverage: f64,
+    /// This run's position in the canonical nine-state evidence vocabulary
+    /// (ELCI-DSEQ-EITR-001 §3), as the label uni's `EvidenceState` serializes
+    /// to. Only ever "finding"/"insufficient_coverage"/"warning"/"healthy"
+    /// here — fract always produces a headline verdict when it runs at all,
+    /// so the tool-didn't-run states (unknown/blocked/skipped/error) aren't
+    /// reachable from this constructor.
+    pub state: &'static str,
 }
 
 impl Summary {
-    /// Aggregate health counts and score over a module set.
+    /// Aggregate health counts and score over a module set. `files_walked`
+    /// is every file the indexer visited, including ones excluded from
+    /// `modules` (unsupported language, empty, unreadable) — see
+    /// `Indexer::index`'s `IndexOutcome`.
     #[must_use]
-    pub fn from_modules(modules: &[Module]) -> Self {
+    pub fn from_modules(modules: &[Module], files_walked: usize) -> Self {
         let total = modules.len();
         let mut excellent = 0;
         let mut healthy = 0;
@@ -163,6 +203,21 @@ impl Summary {
             let good = (excellent + healthy) as f64;
             (good * 1.0 + warning as f64 * 0.6 + critical as f64 * 0.2) / total as f64 * 100.0
         };
+        let excluded = files_walked.saturating_sub(total);
+        let coverage = if files_walked == 0 {
+            1.0
+        } else {
+            total as f64 / files_walked as f64
+        };
+        let state = if critical > 0 {
+            "finding"
+        } else if coverage < MIN_SUFFICIENT_COVERAGE {
+            "insufficient_coverage"
+        } else if warning > 0 {
+            "warning"
+        } else {
+            "healthy"
+        };
         Summary {
             total,
             excellent,
@@ -170,6 +225,9 @@ impl Summary {
             warning,
             critical,
             score,
+            excluded,
+            coverage,
+            state,
         }
     }
 }
@@ -186,7 +244,13 @@ impl Report {
     /// Build a report from an index, ordered by descending entropy (then path).
     /// When `over_only` is set, findings below the threshold are dropped.
     #[must_use]
-    pub fn from_modules(root: &Path, modules: &[Module], threshold: f64, over_only: bool) -> Self {
+    pub fn from_modules(
+        root: &Path,
+        modules: &[Module],
+        files_walked: usize,
+        threshold: f64,
+        over_only: bool,
+    ) -> Self {
         let mut sorted = modules.to_vec();
         sorted.sort_by(|a, b| {
             b.entropy
@@ -194,7 +258,7 @@ impl Report {
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| a.path.cmp(&b.path))
         });
-        let summary = Summary::from_modules(&sorted);
+        let summary = Summary::from_modules(&sorted, files_walked);
         let mut findings: Vec<Finding> = sorted
             .iter()
             .map(|m| Finding::from_module(m, threshold))
@@ -342,7 +406,7 @@ mod tests {
             module("c.rs", 0.7, Health::Warning),
             module("d.rs", 0.9, Health::Critical),
         ];
-        let s = Summary::from_modules(&modules);
+        let s = Summary::from_modules(&modules, modules.len());
         assert_eq!(s.total, 4);
         assert_eq!(s.excellent, 1);
         assert_eq!(s.healthy, 1);
@@ -350,10 +414,28 @@ mod tests {
         assert_eq!(s.critical, 1);
         // (2*1.0 + 1*0.6 + 1*0.2) / 4 * 100 = 70
         assert!((s.score - 70.0).abs() < 1e-9, "score {}", s.score);
+        assert_eq!(s.excluded, 0);
+        assert!((s.coverage - 1.0).abs() < f64::EPSILON);
+        assert_eq!(s.state, "finding");
 
-        let empty = Summary::from_modules(&[]);
+        let empty = Summary::from_modules(&[], 0);
         assert_eq!(empty.total, 0);
         assert!((empty.score - 100.0).abs() < f64::EPSILON);
+        assert!((empty.coverage - 1.0).abs() < f64::EPSILON);
+        assert_eq!(empty.state, "healthy");
+    }
+
+    #[test]
+    fn summary_coverage_and_excluded_reflect_files_walked() {
+        let modules = [module("a.rs", 0.1, Health::Excellent)];
+        // 1 module produced out of 4 files walked -> 3 excluded, 25% coverage.
+        let s = Summary::from_modules(&modules, 4);
+        assert_eq!(s.excluded, 3);
+        assert!((s.coverage - 0.25).abs() < 1e-9);
+        assert_eq!(
+            s.state, "insufficient_coverage",
+            "25% coverage must not be reported as a plain healthy verdict"
+        );
     }
 
     #[test]
@@ -363,7 +445,7 @@ mod tests {
             module("high.rs", 0.95, Health::Critical),
             module("mid.rs", 0.6, Health::Healthy),
         ];
-        let mut report = Report::from_modules(Path::new("/tmp/x"), &modules, 0.82, false);
+        let mut report = Report::from_modules(Path::new("/tmp/x"), &modules, modules.len(), 0.82, false);
         assert_eq!(report.findings[0].module, PathBuf::from("high.rs"));
         assert_eq!(report.findings.len(), 3);
         report.apply_budget(1);
@@ -373,7 +455,7 @@ mod tests {
             "budget trims findings, not the summary"
         );
         // A zero budget disables truncation entirely.
-        let mut report = Report::from_modules(Path::new("/tmp/x"), &modules, 0.82, false);
+        let mut report = Report::from_modules(Path::new("/tmp/x"), &modules, modules.len(), 0.82, false);
         report.apply_budget(0);
         assert_eq!(report.findings.len(), 3);
     }
@@ -384,7 +466,7 @@ mod tests {
             module("low.rs", 0.2, Health::Healthy),
             module("high.rs", 0.95, Health::Critical),
         ];
-        let report = Report::from_modules(Path::new("/tmp/x"), &modules, 0.82, true);
+        let report = Report::from_modules(Path::new("/tmp/x"), &modules, modules.len(), 0.82, true);
         assert_eq!(report.findings.len(), 1);
         assert_eq!(report.findings[0].module, PathBuf::from("high.rs"));
     }
